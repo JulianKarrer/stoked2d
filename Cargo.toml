@@ -1,0 +1,15 @@
+[package]
+name = "stoked2d"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+egui_speedy2d = "0.4.0"
+speedy2d = "1.12.0"
+glam = "0.24.2"
+lazy_static = "1.4.0"
+atomic_float = "0.1.0"
+rayon = "1.8.0"
+colorgrad = "0.6.2"
