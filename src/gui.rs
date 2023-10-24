@@ -5,17 +5,19 @@ use egui_speedy2d::egui;
 use speedy2d::shape::Rectangle;
 use speedy2d::window::MouseScrollDistance;
 use speedy2d::{window::{WindowHelper, self}, Graphics2D, color::Color, dimen::Vector2};
+use atomic::Atomic;
 
 // GUI RELATED CONSTANTS AND ATOMICS
 static ZOOM:AtomicF32 = AtomicF32::new(20.0);
 const ZOOM_SPEED:f32 = 1.5;
 static DRAGGING:AtomicBool = AtomicBool::new(false);
 const BOUNDARY_THCKNESS:f64 = 0.05;
+static GUI_FPS:AtomicF64 = AtomicF64::new(60.0);
 
 lazy_static! {
   static ref DRAG_OFFSET:Arc<RwLock<speedy2d::dimen::Vec2>> = Arc::new(RwLock::new(speedy2d::dimen::Vec2::new(0.0, 0.0)));
   static ref DRAG_LAST:Arc<RwLock<Option<speedy2d::dimen::Vec2>>> = Arc::new(RwLock::new(None));
-  static ref LAST_FRAME_TIME:AtomicF64 = AtomicF64::new(timestamp());
+  static ref LAST_FRAME_TIME:Atomic<u128> = Atomic::new(0);
 }
 
 fn camera_transform(p: &DVec2, offset: &Vector2<f32>, zoom: f32, width: f32, height: f32)->Vector2<f32>{
@@ -35,9 +37,10 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
   ) {
     // update FPS counter in title
     let now = timestamp();
-    let diff = (now-LAST_FRAME_TIME.load(Relaxed)).max(0.001);
+    let dt = micros_to_seconds(now-LAST_FRAME_TIME.load(Relaxed));
+    GUI_FPS.store(GUI_FPS.load(Relaxed)*FPS_SMOOTING + 1.0/dt * (1.0-FPS_SMOOTING), Relaxed);
     LAST_FRAME_TIME.store(now, Relaxed);
-    helper.set_title(format!("Stoked 2D: {:.1} FPS - SIM: {:.1} FPS", 1.0/diff, SIM_FPS.load(Relaxed)));
+    helper.set_title(format!("Stoked 2D  -  GUI: {:.1} FPS  -  SIM: {:.1} FPS", GUI_FPS.load(Relaxed), SIM_FPS.load(Relaxed)));
 
     // clear screen
     graphics.clear_screen(Color::BLACK);
@@ -62,11 +65,11 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
 
     // draw each particle, with (0,0) being the centre of the screen
     let gradient = colorgrad::spectral();
-    (*POSITIONS).read().iter().zip((*COLOUR).read().iter()).for_each(|(p, c)|{
+    (*HISTORY).read().last().unwrap().0.iter().zip((*COLOUR).read().iter()).for_each(|(p, c)|{
       let colour = gradient.at(*c);
       graphics.draw_circle(
         camera_transform(p, &off, z, w, h), 
-        0.5*z, 
+        0.5*z*H as f32, 
         Color::from_rgb(colour.r as f32, colour.g as f32, colour.b as f32)
       )
     });
