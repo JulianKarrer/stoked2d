@@ -48,6 +48,8 @@ pub fn run(){
     if REQUEST_RESTART.fetch_and(false, SeqCst){
       reset(&mut pos, &mut vel, &mut acc, &mut prs, &mut den);
       init(&mut pos, &mut vel, &mut acc, &mut prs, &mut den);
+      current_t = 0.0;
+      last_update_time = timestamp();
     }
     // throttle
     sleep(Duration::from_micros(SIMULATION_THROTTLE_MICROS.load(Relaxed)));
@@ -63,13 +65,11 @@ pub fn run(){
     enforce_boundary_conditions(&mut pos, &mut vel, &mut acc);
 
     // perform a time step
-    let dt = micros_to_seconds(timestamp() - last_update_time);
-    current_t += dt;
-    last_update_time = timestamp();
-    SIM_FPS.fetch_update(Relaxed, Relaxed, |fps| Some(fps*FPS_SMOOTING + 1.0/dt * (1.0-FPS_SMOOTING))).unwrap();
+    let dt = update_dt(&vel, &mut current_t);
     time_step_euler_cromer(&mut pos, &mut vel, &mut acc, dt);
 
-    // write back the positions to the global buffer for visualization and update timestamp
+    // write back the positions to the global buffer for visualization and update the FPS count
+    update_fps(&mut last_update_time);
     {
       HISTORY.write().push((pos.clone(), current_t));
       // visualize the normalized speed of each particle
@@ -78,6 +78,26 @@ pub fn run(){
       *(COLOUR.write()) = den.par_iter().map(|x| 1.0- (x.min(max)-min)/(max-min)).collect();
     }
   }
+}
+
+/// Determines the size of the next time step in seconds using the maximum velocity of a particle
+/// in the previous step, the particle spacing H and a factor LAMBDA, updating the current time and 
+/// returning the dt for numerical time integration
+fn update_dt(vel: &[DVec2], current_t: &mut f64)->f64{
+  let v_max = vel.par_iter().map(|v|v.length()).reduce_with(|a,b| a.max(b)).unwrap();
+  let mut dt = LAMBDA.load(Relaxed) * H / v_max;
+  if !dt.is_normal() {dt = DEFAULT_DT}
+  *current_t += dt;
+  dt
+}
+
+/// Update the FPS counter based on the previous iterations timestamp
+fn update_fps(previous_timestamp: &mut u128){
+  let now = timestamp();
+  SIM_FPS.fetch_update(Relaxed, Relaxed, |fps| Some(
+    fps*FPS_SMOOTING + 1.0/micros_to_seconds( now - *previous_timestamp) * (1.0-FPS_SMOOTING)
+  )).unwrap();
+  *previous_timestamp = now;
 }
 
 /// Apply external forces such as gravity to the fluid

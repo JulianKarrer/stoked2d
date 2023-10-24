@@ -1,7 +1,6 @@
-
 use crate::*;
 
-use egui_speedy2d::egui;
+use egui_speedy2d::egui::{self};  
 use speedy2d::shape::Rectangle;
 use speedy2d::window::MouseScrollDistance;
 use speedy2d::{window::{WindowHelper, self}, Graphics2D, color::Color, dimen::Vector2};
@@ -14,10 +13,16 @@ static DRAGGING:AtomicBool = AtomicBool::new(false);
 const BOUNDARY_THCKNESS:f64 = 0.05;
 static GUI_FPS:AtomicF64 = AtomicF64::new(60.0);
 
+struct PlayState{
+  playing: bool,
+  start: u128,
+}
+
 lazy_static! {
   static ref DRAG_OFFSET:Arc<RwLock<speedy2d::dimen::Vec2>> = Arc::new(RwLock::new(speedy2d::dimen::Vec2::new(0.0, 0.0)));
   static ref DRAG_LAST:Arc<RwLock<Option<speedy2d::dimen::Vec2>>> = Arc::new(RwLock::new(None));
   static ref LAST_FRAME_TIME:Atomic<u128> = Atomic::new(0);
+  static ref PLAY_STATE:Arc<RwLock<PlayState>> = Arc::new(RwLock::new(PlayState{playing: false, start: 0}));
 }
 
 fn camera_transform(p: &DVec2, offset: &Vector2<f32>, zoom: f32, width: f32, height: f32)->Vector2<f32>{
@@ -63,32 +68,88 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
       Color::BLACK
     );
 
-    // draw each particle, with (0,0) being the centre of the screen
-    let gradient = colorgrad::spectral();
-    (*HISTORY).read().last().unwrap().0.iter().zip((*COLOUR).read().iter()).for_each(|(p, c)|{
-      let colour = gradient.at(*c);
-      graphics.draw_circle(
-        camera_transform(p, &off, z, w, h), 
-        0.5*z*H as f32, 
-        Color::from_rgb(colour.r as f32, colour.g as f32, colour.b as f32)
-      )
-    });
+    // get the current playstate and decide what to display
+    let mut caught_up = true;
+    {
+      let mut playstate = PLAY_STATE.write();
+      let hist = (*HISTORY).read();
+      let state = if playstate.playing {
+        let res = hist.iter().find(|(_,t)| *t >= micros_to_seconds(timestamp() - playstate.start));
+        if let Some((s,_)) = res {
+          caught_up = false;
+          s
+        } else {
+          // playback is caught up to the present, stop
+          playstate.playing = false;
+          &(hist.last().unwrap().0)
+        }
+      } else {&(hist.last().unwrap().0)};
+      // draw each particle, with (0,0) being the centre of the screen
+      let gradient = colorgrad::spectral();
+      state.iter().zip((*COLOUR).read().iter()).for_each(|(p, c)|{
+        let colour = gradient.at(*c);
+        graphics.draw_circle(
+          camera_transform(p, &off, z, w, h), 
+          0.5*z*H as f32, 
+          Color::from_rgb(colour.r as f32, colour.g as f32, colour.b as f32)
+        )
+      });
+    }
     
     // draw the GUI
-    let mut gravity = GRAVITY.load(Relaxed);
     let mut restart = false;
+    let mut gravity = GRAVITY.load(Relaxed);
+    let mut k: f64 = K.load(Relaxed);
+    let mut rho_0:f64 = RHO_ZERO.load(Relaxed);
+    let mut lambda:f64 = LAMBDA.load(Relaxed);
+    // SETTINGS WINDOW
     egui::Window::new("Settings").resizable(true).show(egui_ctx, |ui| {
-      // adjust gravity
+      // restart the animation
       if ui.button("Restart Simulation").clicked(){
         restart = true;
       }
       ui.horizontal(|ui| {
-        ui.label("Gravity");
-        ui.add(egui::DragValue::new(&mut gravity).speed(0.1).max_decimals(3));
+        if ui.button("Play in Real Time").clicked(){
+          let mut playstate = PLAY_STATE.write();
+          playstate.playing = true;
+          playstate.start = timestamp();
+        }
+        if ui.button("Skip to present").clicked(){
+          let mut playstate = PLAY_STATE.write();
+          playstate.playing = false;
+        }
       });
+      // adjust, gravity, stiffness etc. 
+      ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut lambda).speed(0.001).max_decimals(3).clamp_range(0.001..=1.0));
+        ui.label("Timestep Lambda");
+      });
+      ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut gravity).speed(0.1).max_decimals(3));
+        ui.label("Gravity G");
+      });
+      ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut k).speed(10).max_decimals(0));
+        ui.label("Stiffness K");
+      });
+      ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut rho_0).speed(0.01));
+        ui.label("Rest density Rho_0");
+      });
+      // BOTTOM PANEL
+      let time_available:f64 = (*HISTORY).read().last().unwrap().1;
+      egui::panel::TopBottomPanel::bottom("time_panel").resizable(false).show(egui_ctx, |ui|{
+        ui.horizontal(|ui| {
+          ui.add_sized([50.0,30.0], egui::Label::new(format!("Available time: {:.2}", time_available)));
+          ui.add_sized([50.0,30.0], egui::Label::new(if caught_up {"caught up"} else {"playing"}));
+        });
+      })
       
     });
+    LAMBDA.store(lambda, Relaxed);
     GRAVITY.store(gravity, Relaxed);
+    K.store(k, Relaxed);
+    RHO_ZERO.store(rho_0, Relaxed);
     REQUEST_RESTART.store(restart, Relaxed);
     helper.request_redraw();
   }

@@ -32,6 +32,9 @@ static SIMULATION_THROTTLE_MICROS:AtomicU64 = AtomicU64::new(50);
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
 const H:f64 = 0.5;
+/// The factor of the maximum size of a time step taken each iteration
+static LAMBDA:AtomicF64 = AtomicF64::new(0.05);
+const DEFAULT_DT:f64 = 0.01;
 /// Mass of a particle
 const M:f64 = H*H;
 /// Rest density of the fluid
