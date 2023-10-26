@@ -1,3 +1,4 @@
+#![feature(test)]
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, atomic::AtomicU32};
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
@@ -33,7 +34,7 @@ static SIMULATION_THROTTLE_MICROS:AtomicU64 = AtomicU64::new(50);
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-const H:f64 = 0.2;
+const H:f64 = 0.5;
 // -> Consequence of kernel support radius 2H:
 const GRIDSIZE:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration

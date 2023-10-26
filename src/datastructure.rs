@@ -58,6 +58,7 @@ static DIRECTIONS:[DVec2;9] = [
 ];
 
 impl Grid{
+  /// Update a grid using the current positions of particles so that neighbours can be queried
   pub fn update_grid(&mut self, pos: &[DVec2], gridsize: f64){
     // instead of defining the grid from a fixed point or in a fixed rectangle, define it from the minimum
     // point of the bounding volume containing all points to allow potentially inifnite grids
@@ -74,10 +75,14 @@ impl Grid{
     ).flatten().collect();
   }
 
-  pub fn query(&self, p:&DVec2, gridsize:f64)->Vec<usize>{
+  /// Query the for all neighbours within a given radius.
+  /// A superset of the actual neighbours is returned, potentially containing non-neighbours.
+  /// Since the results of this function are typically used as input to compact kernel functions, 
+  /// this is unproblematic.
+  pub fn query(&self, p:&DVec2, search_radius:f64)->Vec<usize>{
     DIRECTIONS.iter().map(|d|{
-      let x = *p+(*d)*gridsize;
-      get_key(&x, &self.min, gridsize)
+      let x = *p+(*d)*search_radius;
+      get_key(&x, &self.min, search_radius)
     }).flat_map(|code| 
       if let Ok(cells_index) = self.cells.binary_search_by_key(&code, |h| h.cell) {
         Some(
@@ -91,23 +96,31 @@ impl Grid{
     ).flatten().collect()
   }
 
+  /// Create a new grid, allocating space for the given number of particles
   pub fn new(number_of_particles:usize)->Self{
-    Self { min: DVec2::NEG_INFINITY, handles: vec![Handle::default(); number_of_particles], cells: vec![Handle::default(); number_of_particles] }
+    Self { min: DVec2::NEG_INFINITY, handles: vec![Handle::default(); number_of_particles], cells: vec![] }
   }
 }
 
 
 #[cfg(test)]
 mod tests {
+  use super::*;
+  extern crate test;
+  use test::Bencher;
   use rand::{thread_rng, Rng};
   use rayon::prelude::{ParallelIterator, ParallelBridge};
-  use super::*;
 
   const REPETITIONS:usize = 10;
   const TEST_RUNS:usize = 1000;
   const PARTICLES:usize = 5000;
   const RANGE:f64 = 10.0;
   const GRIDSIZE:f64 = 1.0;
+
+  const BENCH_PARTICLES:usize = 2500;
+  const BENCH_TIMESTEPS_SIMULATED:usize = 1;
+  const BENCH_PARTICLE_DX_PER_TIMESTEP:f64 = 0.1;
+  const BENCH_QUERIES_PER_STEP:usize = 2;
   
   fn random_vec2(range:f64)->DVec2{
     DVec2::new(
@@ -117,7 +130,7 @@ mod tests {
   }
 
   #[test]
-  fn grid_artificial(){
+  fn grid_artificial_example(){
     let grid = Grid{ 
       min: DVec2::ZERO, 
       handles: vec![Handle{ index: 0, cell: 0 }, Handle{ index: 1, cell: 0 }, Handle{ index: 2, cell: 3 }, Handle{ index: 3, cell: 8 }], 
@@ -129,7 +142,7 @@ mod tests {
   }
 
   #[test]
-  fn grid_update_query() {
+  fn grid_update_and_query_correctness() {
     for _ in 0..REPETITIONS{
       let mut grid = Grid::new(PARTICLES);
       let pos:Vec<DVec2> = (0..PARTICLES).par_bridge().map(|_|random_vec2(RANGE)).collect();
@@ -143,7 +156,7 @@ mod tests {
           } else {None}
         ).collect();
 
-        // the neighbours must be a subset of the answer
+        // the answer can't contain less entries than the solution, as it must be a superset
         assert!(
           answer.len()>=expected.len(), 
           "p: {}\nanswer: {:?}\nexpected: {:?}\ngrid: {:?}\npos: {:?}\ncodes: {:?}", 
@@ -162,4 +175,23 @@ mod tests {
       }
     }
   }
+
+  #[bench]
+  fn grid_bench_grid(b: &mut Bencher) {
+    b.iter(|| {
+      let queries:Vec<DVec2> = (0..BENCH_PARTICLES).map(|_|random_vec2(RANGE)).collect();
+      let mut pos:Vec<DVec2> = (0..BENCH_PARTICLES).map(|_|random_vec2(RANGE)).collect();
+      let mut grid = Grid::new(BENCH_PARTICLES);
+      for _ in 0..BENCH_TIMESTEPS_SIMULATED{
+        grid.update_grid(&pos, GRIDSIZE);
+        for _ in 0..BENCH_QUERIES_PER_STEP{
+          queries.par_iter().for_each(|q|{test::black_box( 
+            grid.query(q, GRIDSIZE) 
+          );});
+        }
+        pos.par_iter_mut().for_each(|p|{*p+=random_vec2(BENCH_PARTICLE_DX_PER_TIMESTEP);})
+      }
+    });
+  }
+
 }
