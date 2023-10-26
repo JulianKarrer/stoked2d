@@ -17,3 +17,5 @@ atomic = "0.6.0"
 approx = "0.5.1"
 rand = "0.8.5"
 spin_sleep = "1.1.1"
+lindel = "0.1.1"
+voracious_radix_sort = { version = "1.2.0", features = ["voracious_multithread"] }

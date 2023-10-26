@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, atomic::AtomicU32};
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
-use std::thread;
+use std::thread::{self, available_parallelism};
 use std::time::{SystemTime, UNIX_EPOCH};
 use atomic_float::{AtomicF32, AtomicF64};
 use glam::DVec2;
@@ -13,14 +13,16 @@ mod gui;
 use gui::StokedWindowHandler;
 mod simulation;
 mod sph;
+mod datastructure;
 type History = Arc<RwLock<Vec<(Vec<DVec2>, f64)>>>;
 
 static WINDOW_SIZE:[AtomicU32;2] = [AtomicU32::new(1280), AtomicU32::new(720)];
 static SIM_FPS:AtomicF64 = AtomicF64::new(60.0);
-const FPS_SMOOTING:f64 = 0.95;
+const FPS_SMOOTING:f64 = 0.8;
 
 // SIMULATION RELATED CONSTANTS AND ATOMICS
 lazy_static! {
+  pub static ref THREADS:usize = available_parallelism().unwrap().get();
   pub static ref REQUEST_RESTART:Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
   static ref BOUNDARY:[DVec2;2] = [DVec2::new(-10.0,-10.0), DVec2::new(10.0,10.0)];
   static ref FLUID:[DVec2;2] = [DVec2::new(-5.0,-5.0), DVec2::new(5.0,5.0)];
@@ -31,7 +33,9 @@ static SIMULATION_THROTTLE_MICROS:AtomicU64 = AtomicU64::new(50);
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-const H:f64 = 0.5;
+const H:f64 = 0.2;
+// -> Consequence of kernel support radius 2H:
+const GRIDSIZE:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA:AtomicF64 = AtomicF64::new(0.05);
 const DEFAULT_DT:f64 = 0.01;
