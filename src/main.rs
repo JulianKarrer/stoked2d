@@ -17,9 +17,14 @@ mod sph;
 mod datastructure;
 type History = Arc<RwLock<Vec<(Vec<DVec2>, f64)>>>;
 
+// switch default allocator
+use mimalloc::MiMalloc;
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 static WINDOW_SIZE:[AtomicU32;2] = [AtomicU32::new(1280), AtomicU32::new(720)];
 static SIM_FPS:AtomicF64 = AtomicF64::new(60.0);
-const FPS_SMOOTING:f64 = 0.8;
+const FPS_SMOOTING:f64 = 0.95;
 
 // SIMULATION RELATED CONSTANTS AND ATOMICS
 lazy_static! {
@@ -30,11 +35,14 @@ lazy_static! {
   pub static ref HISTORY:History = Arc::new(RwLock::new(vec![(vec![], 0.0)]));
   pub static ref COLOUR:Arc<RwLock<Vec<f64>>> = Arc::new(RwLock::new(vec![]));
 }
-static SIMULATION_THROTTLE_MICROS:AtomicU64 = AtomicU64::new(50);
+
+static RESORT_ATTRIBUTES_EVERY_N:AtomicU32 = AtomicU32::new(16);
+static SIMULATION_THROTTLE_MICROS:AtomicU64 = AtomicU64::new(10);
+
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-const H:f64 = 0.5;
+const H:f64 = 2.0;
 // -> Consequence of kernel support radius 2H:
 const GRIDSIZE:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration

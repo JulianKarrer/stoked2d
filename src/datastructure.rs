@@ -5,8 +5,8 @@ use voracious_radix_sort::{Radixable, RadixSort};
 use crate::*;
 
 #[derive(Copy, Clone, Debug, Default)]
-struct Handle{
-  index: usize,
+pub struct Handle{
+  pub index: usize,
   cell: u64
 }
 impl PartialOrd for Handle{
@@ -42,7 +42,7 @@ impl Radixable<u64> for Handle{
 /// created which indexes into the Vector of handles. 
 pub struct Grid{
   min: DVec2,
-  handles:Vec<Handle>,
+  pub handles:Vec<Handle>,
   cells:Vec<Handle>
 }
 

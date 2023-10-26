@@ -102,6 +102,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let mut k: f64 = K.load(Relaxed);
     let mut rho_0:f64 = RHO_ZERO.load(Relaxed);
     let mut lambda:f64 = LAMBDA.load(Relaxed);
+    let mut resort:u32 = RESORT_ATTRIBUTES_EVERY_N.load(Relaxed);
     // SETTINGS WINDOW
     egui::Window::new("Settings").resizable(true).show(egui_ctx, |ui| {
       // restart the animation
@@ -119,6 +120,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
           playstate.playing = false;
         }
       });
+      ui.separator();
       // adjust, gravity, stiffness etc. 
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut lambda).speed(0.001).max_decimals(3).clamp_range(0.001..=1.0));
@@ -136,6 +138,12 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         ui.add(egui::DragValue::new(&mut rho_0).speed(0.01));
         ui.label("Rest density Rho_0");
       });
+      // adjust datastructure settings
+      ui.separator();
+      ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut resort).speed(1));
+        ui.label("Resort every N");
+      });
       // BOTTOM PANEL
       let time_available:f64 = (*HISTORY).read().last().unwrap().1;
       egui::panel::TopBottomPanel::bottom("time_panel").resizable(false).show(egui_ctx, |ui|{
@@ -151,6 +159,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     K.store(k, Relaxed);
     RHO_ZERO.store(rho_0, Relaxed);
     REQUEST_RESTART.store(restart, Relaxed);
+    RESORT_ATTRIBUTES_EVERY_N.store(resort, Relaxed);
     helper.request_redraw();
   }
 

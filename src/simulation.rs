@@ -5,53 +5,80 @@ use spin_sleep::sleep;
 
 use crate::{*, sph::{kernel, kernel_derivative}, datastructure::Grid};
 
-
-// INITIALIZATION
-pub fn reset(pos: &mut Vec<DVec2>, vel: &mut Vec<DVec2>, acc: &mut Vec<DVec2>, pre: &mut Vec<f64>, den: &mut Vec<f64>){
-  *(HISTORY.write()) = vec![(vec![], 0.0)];
-  pos.clear();
-  vel.clear();
-  acc.clear();
-  pre.clear();
-  den.clear();
+/// Holds all particle data as a struct of arrays
+pub struct Attributes{
+  pub pos:Vec<DVec2>, 
+  pub vel:Vec<DVec2>, 
+  pub acc:Vec<DVec2>, 
+  pub prs:Vec<f64>,
+  pub den:Vec<f64>,
 }
 
-pub fn init(pos: &mut Vec<DVec2>, vel: &mut Vec<DVec2>, acc: &mut Vec<DVec2>, pre: &mut Vec<f64>, den: &mut Vec<f64>){
-  let mut x = FLUID[0].x;
-  let mut y = FLUID[0].y;
-  while x <= FLUID[1].x {
-    while y <= FLUID[1].y{
-      pos.push(DVec2::new(x, y));
-      vel.push(DVec2::ZERO);
-      acc.push(DVec2::ZERO);
-      y += H;
+impl Attributes{
+  /// Initialize a new set of particles attributes, filling the area within the
+  /// box given by FLUID with particles using spacing H
+  fn new()->Self{
+    // estimate the number of particles beforehand for allocation
+    let n: usize = ((FLUID[1].x-FLUID[0].x)/(H) + 1.0).ceil() as usize * ((FLUID[1].y-FLUID[0].y)/(H) + 1.0).ceil() as usize;
+    println!("{}",n);
+    // allocation
+    let mut pos:Vec<DVec2> = Vec::with_capacity(n); 
+    let mut vel:Vec<DVec2> = Vec::with_capacity(n); 
+    let mut acc:Vec<DVec2> = Vec::with_capacity(n); 
+    // initialization
+    let mut x = FLUID[0].x;
+    let mut y = FLUID[0].y;
+    while x <= FLUID[1].x {
+      while y <= FLUID[1].y{
+        pos.push(DVec2::new(x, y));
+        vel.push(DVec2::ZERO);
+        acc.push(DVec2::ZERO);
+        y += H;
+      }
+      y = FLUID[0].y;
+      x += H;
     }
-    y = FLUID[0].y;
-    x += H;
+    let prs = vec![0.0;pos.len()];
+    let den = vec![0.0;pos.len()];
+    // return new set of attributes
+    Self { pos, vel, acc, prs, den }
   }
-  *pre = vec![0.0;pos.len()];
-  *den = vec![0.0;pos.len()];
+
+  /// Resort all particle attributes according to some given order, which must be
+  /// a permutation of (0..NUMBER_OF_PARTICLES). This is meant to eg. improve cache-hit-rates
+  /// by employing the same sorting as the acceleration datastructure for neighbourhood queries.
+  fn resort(&mut self, grid: &mut Grid){
+    // extract the order of the attributes according to cell-wise z-ordering
+    let order:Vec<usize> = grid.handles.par_iter().map(|h|h.index).collect();
+    debug_assert!(order.len() == self.pos.len());
+    // re-order all particle attributes in accordance with the order
+    self.pos = order.par_iter().map(|i| self.pos[*i]).collect();
+    self.vel = order.par_iter().map(|i| self.vel[*i]).collect();
+    self.acc = order.par_iter().map(|i| self.acc[*i]).collect();
+    self.prs = order.par_iter().map(|i| self.prs[*i]).collect();
+    self.den = order.par_iter().map(|i| self.den[*i]).collect();
+
+    // update the handles to point to the newly re-sorted attributes by simply setting them to
+    // (0..NUMBER_OF_PARTICLES)
+    grid.handles.par_iter_mut().enumerate().for_each(|(i,h)| h.index = i);
+  }
 }
+
 
 // MAIN SIMULATION LOOP
 pub fn run(){
-  let mut pos:Vec<DVec2> = vec![]; 
-  let mut vel:Vec<DVec2> = vec![]; 
-  let mut acc:Vec<DVec2> = vec![]; 
-  let mut prs:Vec<f64> = vec![];
-  let mut den:Vec<f64> = vec![];
-  init(&mut pos, &mut vel, &mut acc, &mut prs, &mut den);
-  let mut grid = Grid::new(pos.len());
-  println!("Number of particles: {}",pos.len());
-
+  let mut state = Attributes::new();
+  let mut grid = Grid::new(state.pos.len());
+  println!("{} particles", state.pos.len());
   let mut last_update_time = timestamp();
   let mut current_t = 0.0;
+  let mut since_resort = 0;
   loop {
     // restart the simulation if requested
     if REQUEST_RESTART.fetch_and(false, SeqCst){
-      reset(&mut pos, &mut vel, &mut acc, &mut prs, &mut den);
-      init(&mut pos, &mut vel, &mut acc, &mut prs, &mut den);
-      grid = Grid::new(pos.len());
+      state = Attributes::new();
+      grid = Grid::new(state.pos.len());
+      *(HISTORY.write()) = vec![(vec![], 0.0)];
       current_t = 0.0;
       last_update_time = timestamp();
     }
@@ -59,28 +86,35 @@ pub fn run(){
     sleep(Duration::from_micros(SIMULATION_THROTTLE_MICROS.load(Relaxed)));
 
     // apply external forces
-    external_forces(&mut acc);
+    external_forces(&mut state.acc);
+
+    // update the datastructure and potentially resort particle attributes
+    grid.update_grid(&state.pos, GRIDSIZE);
+    if since_resort > RESORT_ATTRIBUTES_EVERY_N.load(Relaxed) {
+      state.resort(&mut grid);
+      since_resort = 0;
+    } else {since_resort += 1;}
 
     // apply pressure forces
-    grid.update_grid(&pos, GRIDSIZE);
-    update_density_pressure(&pos, &mut prs, &mut den, &grid);
-    add_pressure_accelerations(&pos, &den, &prs, &mut acc, &grid);
+    update_density_pressure(&state.pos, &mut state.prs, &mut state.den, &grid);
+    add_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, &grid);
 
     // enforce rudimentary boundary conditions
-    enforce_boundary_conditions(&mut pos, &mut vel, &mut acc);
+    enforce_boundary_conditions(&mut state.pos, &mut state.vel, &mut state.acc);
 
     // perform a time step
-    let dt = update_dt(&vel, &mut current_t);
-    time_step_euler_cromer(&mut pos, &mut vel, &mut acc, dt);
+    let dt = update_dt(&state.vel, &mut current_t);
+    time_step_euler_cromer(&mut state.pos, &mut state.vel, &mut state.acc, dt);
 
     // write back the positions to the global buffer for visualization and update the FPS count
     update_fps(&mut last_update_time);
     {
-      HISTORY.write().push((pos.clone(), current_t));
+      HISTORY.write().push((state.pos.clone(), current_t));
       // visualize the normalized speed of each particle
       let min = 0.8;
       let max = 1.2;
-      *(COLOUR.write()) = den.par_iter().map(|x| 1.0- (x.min(max)-min)/(max-min)).collect();
+      *(COLOUR.write()) = state.den.par_iter().map(|x| 1.0- (x.min(max)-min)/(max-min)).collect();
+      // *(COLOUR.write()) = grid.handles.par_iter().map(|x| x.index as f64/state.pos.len() as f64).collect();
     }
   }
 }
