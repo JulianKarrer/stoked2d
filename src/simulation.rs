@@ -113,8 +113,8 @@ pub fn run(){
       // visualize the normalized speed of each particle
       let min = 0.8;
       let max = 1.2;
-      *(COLOUR.write()) = state.den.par_iter().map(|x| 1.0- (x.min(max)-min)/(max-min)).collect();
-      // *(COLOUR.write()) = grid.handles.par_iter().map(|x| x.index as f64/state.pos.len() as f64).collect();
+      // *(COLOUR.write()) = state.den.par_iter().map(|x| 1.0- (x.min(max)-min)/(max-min)).collect();
+      *(COLOUR.write()) = grid.handles.par_iter().map(|x| x.index as f64/state.pos.len() as f64).collect();
     }
   }
 }

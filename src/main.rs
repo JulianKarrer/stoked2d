@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 use std::thread::{self, available_parallelism};
 use std::time::{SystemTime, UNIX_EPOCH};
 use atomic_float::{AtomicF32, AtomicF64};
+use datastructure::{GridCurve, AtomicGridCurve};
 use glam::DVec2;
 use lazy_static::lazy_static;
 use egui_speedy2d::egui::mutex::RwLock;
@@ -36,13 +37,17 @@ lazy_static! {
   pub static ref COLOUR:Arc<RwLock<Vec<f64>>> = Arc::new(RwLock::new(vec![]));
 }
 
+
+static SIMULATION_THROTTLE_MICROS:AtomicU64 = AtomicU64::new(1);
+
+// datastructure settings
 static RESORT_ATTRIBUTES_EVERY_N:AtomicU32 = AtomicU32::new(16);
-static SIMULATION_THROTTLE_MICROS:AtomicU64 = AtomicU64::new(10);
+static GRID_CURVE:AtomicGridCurve = AtomicGridCurve::new(GridCurve::Morton);
 
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-const H:f64 = 2.0;
+const H:f64 = 0.1;
 // -> Consequence of kernel support radius 2H:
 const GRIDSIZE:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration

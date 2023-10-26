@@ -1,4 +1,5 @@
-use lindel::morton_encode;
+use atomic_enum::atomic_enum;
+use lindel::{morton_encode, hilbert_encode};
 use rayon::prelude::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator, IntoParallelRefMutIterator};
 use voracious_radix_sort::{Radixable, RadixSort};
 
@@ -46,9 +47,20 @@ pub struct Grid{
   cells:Vec<Handle>
 }
 
-fn get_key(p:&DVec2, min: &DVec2, gridsize: f64)->u64{
+#[derive(PartialEq)]
+#[atomic_enum]
+pub enum GridCurve{
+  Morton,
+  Hilbert,
+}
+
+fn get_key(p:&DVec2, min: &DVec2, gridsize: f64, curve: GridCurve)->u64{
   let ind = ((*p-*min)/gridsize).as_uvec2().to_array();
-  morton_encode(ind)
+  match curve{
+    GridCurve::Morton => morton_encode(ind),
+    GridCurve::Hilbert => hilbert_encode(ind),
+  }
+  
 }
 
 static DIRECTIONS:[DVec2;9] = [
@@ -64,8 +76,9 @@ impl Grid{
     // point of the bounding volume containing all points to allow potentially inifnite grids
     self.min = pos.par_iter().cloned().reduce(|| DVec2::MAX, |a, b|a.min(b)) - DVec2::ONE*gridsize;
     // compute the cell index for each particle, creating a "handle" as defined above
+    let curve = GRID_CURVE.load(Relaxed);
     self.handles.par_iter_mut().zip(pos).enumerate().for_each(|(i, (h, p))|
-      *h = Handle { index: i, cell: get_key(p, &self.min, gridsize) }
+      *h = Handle { index: i, cell: get_key(p, &self.min, gridsize, curve) }
     );
     // sort particles with respect to their cell index
     self.handles.voracious_mt_sort(*THREADS);
@@ -80,9 +93,10 @@ impl Grid{
   /// Since the results of this function are typically used as input to compact kernel functions, 
   /// this is unproblematic.
   pub fn query(&self, p:&DVec2, search_radius:f64)->Vec<usize>{
+    let curve = GRID_CURVE.load(Relaxed);
     DIRECTIONS.iter().map(|d|{
       let x = *p+(*d)*search_radius;
-      get_key(&x, &self.min, search_radius)
+      get_key(&x, &self.min, search_radius, curve)
     }).flat_map(|code| 
       if let Ok(cells_index) = self.cells.binary_search_by_key(&code, |h| h.cell) {
         Some(
@@ -143,6 +157,7 @@ mod tests {
 
   #[test]
   fn grid_update_and_query_correctness() {
+    let curve = GRID_CURVE.load(Relaxed);
     for _ in 0..REPETITIONS{
       let mut grid = Grid::new(PARTICLES);
       let pos:Vec<DVec2> = (0..PARTICLES).par_bridge().map(|_|random_vec2(RANGE)).collect();
@@ -160,7 +175,7 @@ mod tests {
         assert!(
           answer.len()>=expected.len(), 
           "p: {}\nanswer: {:?}\nexpected: {:?}\ngrid: {:?}\npos: {:?}\ncodes: {:?}", 
-          p, answer, expected, grid, pos, pos.iter().map(|p|get_key(p, &grid.min, GRIDSIZE)).collect::<Vec<u64>>()
+          p, answer, expected, grid, pos, pos.iter().map(|p|get_key(p, &grid.min, GRIDSIZE, curve)).collect::<Vec<u64>>()
         );
 
         // all neightbours must be in the answer

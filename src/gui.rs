@@ -103,6 +103,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let mut rho_0:f64 = RHO_ZERO.load(Relaxed);
     let mut lambda:f64 = LAMBDA.load(Relaxed);
     let mut resort:u32 = RESORT_ATTRIBUTES_EVERY_N.load(Relaxed);
+    let mut curve:GridCurve = GRID_CURVE.load(Relaxed);
     // SETTINGS WINDOW
     egui::Window::new("Settings").resizable(true).show(egui_ctx, |ui| {
       // restart the animation
@@ -144,6 +145,13 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         ui.add(egui::DragValue::new(&mut resort).speed(1));
         ui.label("Resort every N");
       });
+      egui::ComboBox::from_label("Space filling curve")
+        .selected_text(format!("{:?}", curve))
+        .show_ui(ui, |ui| {
+          ui.selectable_value(&mut curve, GridCurve::Morton, "Morton");
+          ui.selectable_value(&mut curve, GridCurve::Hilbert, "Hilbert");
+        }
+      );
       // BOTTOM PANEL
       let time_available:f64 = (*HISTORY).read().last().unwrap().1;
       egui::panel::TopBottomPanel::bottom("time_panel").resizable(false).show(egui_ctx, |ui|{
@@ -160,6 +168,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     RHO_ZERO.store(rho_0, Relaxed);
     REQUEST_RESTART.store(restart, Relaxed);
     RESORT_ATTRIBUTES_EVERY_N.store(resort, Relaxed);
+    GRID_CURVE.store(curve, Relaxed);
     helper.request_redraw();
   }
 
