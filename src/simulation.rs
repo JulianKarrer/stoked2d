@@ -1,9 +1,7 @@
+use crate::{*, sph::{kernel, kernel_derivative}, datastructure::Grid};
 use std::time::Duration;
-
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
 use spin_sleep::sleep;
-
-use crate::{*, sph::{kernel, kernel_derivative}, datastructure::Grid};
 
 /// Holds all particle data as a struct of arrays
 pub struct Attributes{
@@ -69,7 +67,6 @@ impl Attributes{
 pub fn run(){
   let mut state = Attributes::new();
   let mut grid = Grid::new(state.pos.len());
-  println!("{} particles", state.pos.len());
   let mut last_update_time = timestamp();
   let mut current_t = 0.0;
   let mut since_resort = 0;
@@ -78,7 +75,7 @@ pub fn run(){
     if REQUEST_RESTART.fetch_and(false, SeqCst){
       state = Attributes::new();
       grid = Grid::new(state.pos.len());
-      *(HISTORY.write()) = vec![(vec![], 0.0)];
+      *(HISTORY.write()) = History::default();
       current_t = 0.0;
       last_update_time = timestamp();
     }
@@ -108,14 +105,7 @@ pub fn run(){
 
     // write back the positions to the global buffer for visualization and update the FPS count
     update_fps(&mut last_update_time);
-    {
-      HISTORY.write().push((state.pos.clone(), current_t));
-      // visualize the normalized speed of each particle
-      let min = 0.8;
-      let max = 1.2;
-      // *(COLOUR.write()) = state.den.par_iter().map(|x| 1.0- (x.min(max)-min)/(max-min)).collect();
-      *(COLOUR.write()) = grid.handles.par_iter().map(|x| x.index as f64/state.pos.len() as f64).collect();
-    }
+    {  HISTORY.write().add_step(&state, &grid, current_t); }
   }
 }
 

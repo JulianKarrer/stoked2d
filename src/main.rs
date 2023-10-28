@@ -16,10 +16,11 @@ use gui::StokedWindowHandler;
 mod simulation;
 mod sph;
 mod datastructure;
-type History = Arc<RwLock<Vec<(Vec<DVec2>, f64)>>>;
 
 // switch default allocator
 use mimalloc::MiMalloc;
+
+use crate::gui::History;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -33,8 +34,8 @@ lazy_static! {
   pub static ref REQUEST_RESTART:Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
   static ref BOUNDARY:[DVec2;2] = [DVec2::new(-10.0,-10.0), DVec2::new(10.0,10.0)];
   static ref FLUID:[DVec2;2] = [DVec2::new(-5.0,-5.0), DVec2::new(5.0,5.0)];
-  pub static ref HISTORY:History = Arc::new(RwLock::new(vec![(vec![], 0.0)]));
-  pub static ref COLOUR:Arc<RwLock<Vec<f64>>> = Arc::new(RwLock::new(vec![]));
+  pub static ref HISTORY:Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
+  // pub static ref COLOUR:Arc<RwLock<Vec<f64>>> = Arc::new(RwLock::new(vec![]));
 }
 
 
@@ -47,18 +48,18 @@ static GRID_CURVE:AtomicGridCurve = AtomicGridCurve::new(GridCurve::Morton);
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-const H:f64 = 0.1;
+const H:f64 = 0.2;
 // -> Consequence of kernel support radius 2H:
 const GRIDSIZE:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
-static LAMBDA:AtomicF64 = AtomicF64::new(0.05);
+static LAMBDA:AtomicF64 = AtomicF64::new(0.5);
 const DEFAULT_DT:f64 = 0.01;
 /// Mass of a particle
 const M:f64 = H*H;
 /// Rest density of the fluid
 static RHO_ZERO:AtomicF64 = AtomicF64::new(M/(H*H));
 /// Stiffness constant determining the incompressibility in the state equation
-static K:AtomicF64 = AtomicF64::new(1_000.0);
+static K:AtomicF64 = AtomicF64::new(1_500.0);
 
 /// Get the current timestamp in microseconds
 fn timestamp()->u128{SystemTime::now().duration_since(UNIX_EPOCH).expect("Error getting current time").as_micros()}

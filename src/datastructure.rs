@@ -1,9 +1,9 @@
+use crate::*;
 use atomic_enum::atomic_enum;
 use lindel::{morton_encode, hilbert_encode};
 use rayon::prelude::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator, IntoParallelRefMutIterator};
 use voracious_radix_sort::{Radixable, RadixSort};
 
-use crate::*;
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Handle{

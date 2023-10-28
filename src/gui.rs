@@ -1,10 +1,18 @@
 use crate::*;
-
-use egui_speedy2d::egui::{self};  
+use crate::datastructure::Grid;
+use crate::simulation::Attributes;
+use atomic_enum::atomic_enum;
+use egui_speedy2d::egui::{self, RichText};  
+use egui::FontId;
+use egui::plot::{Line, Plot, PlotPoints};
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use speedy2d::shape::Rectangle;
 use speedy2d::window::MouseScrollDistance;
 use speedy2d::{window::{WindowHelper, self}, Graphics2D, color::Color, dimen::Vector2};
 use atomic::Atomic;
+
+// GUI RELATED SETTINGS
+const FONT_HEADING_SIZE:f32 = 25.0;
 
 // GUI RELATED CONSTANTS AND ATOMICS
 static ZOOM:AtomicF32 = AtomicF32::new(20.0);
@@ -12,11 +20,8 @@ const ZOOM_SPEED:f32 = 1.5;
 static DRAGGING:AtomicBool = AtomicBool::new(false);
 const BOUNDARY_THCKNESS:f64 = 0.05;
 static GUI_FPS:AtomicF64 = AtomicF64::new(60.0);
-
-struct PlayState{
-  playing: bool,
-  start: u128,
-}
+static VISUALIZED_FEATURE:AtomicVisualizedFeature = AtomicVisualizedFeature::new(VisualizedFeature::Density);
+static COLOUR_SCHEME:AtomicColourScheme = AtomicColourScheme::new(ColourScheme::Spectral);
 
 lazy_static! {
   static ref DRAG_OFFSET:Arc<RwLock<speedy2d::dimen::Vec2>> = Arc::new(RwLock::new(speedy2d::dimen::Vec2::new(0.0, 0.0)));
@@ -25,6 +30,65 @@ lazy_static! {
   static ref PLAY_STATE:Arc<RwLock<PlayState>> = Arc::new(RwLock::new(PlayState{playing: false, start: 0}));
 }
 
+/// Stores the playback state of the GUI
+struct PlayState{
+  playing: bool,
+  start: u128,
+}
+
+/// Possible features that are visualized with colour
+#[derive(PartialEq)]
+#[atomic_enum]
+enum VisualizedFeature {
+  Density,
+  SpaceFillingCurve,
+}
+
+/// Colour schemes for visualization
+#[derive(PartialEq)]
+#[atomic_enum]
+enum ColourScheme {
+  Spectral,
+  Rainbow,
+  Virdis,
+}
+
+
+/// Represents the features of the simulation that are stored for visualization
+#[derive(Default)]
+pub struct HistoryTimestep{
+  pub pos: Vec<DVec2>,
+  pub current_t: f64,
+  pub densities: Vec<f64>,
+  pub grid_handle_index: Vec<usize>
+}
+
+pub struct History{
+  pub steps: Vec<HistoryTimestep>,
+  plot_density: Vec<[f64;2]>
+}
+
+impl Default for History{
+  fn default() -> Self {
+    Self { steps: vec![HistoryTimestep::default()], plot_density: vec![[0.0, M/(H*H)]] }
+  }
+}
+
+impl History{
+  pub fn add_step(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
+    let densities = state.den.clone();
+    let average_density = densities.par_iter().sum::<f64>()/densities.len() as f64;
+    self.plot_density.push([current_t, average_density]);
+    self.steps.push(HistoryTimestep{ 
+      pos: state.pos.clone(), 
+      current_t, 
+      densities, 
+      grid_handle_index: grid.handles.par_iter().map(|x| x.index ).collect(),
+    })
+  }
+}
+
+/// Performs a camera transformation from a given point in world-space to drawing space
 fn camera_transform(p: &DVec2, offset: &Vector2<f32>, zoom: f32, width: f32, height: f32)->Vector2<f32>{
   Vector2::new(
     zoom*p.x as f32 + offset.x + width*0.5  , 
@@ -33,6 +97,15 @@ fn camera_transform(p: &DVec2, offset: &Vector2<f32>, zoom: f32, width: f32, hei
 
 pub struct StokedWindowHandler;
 impl egui_speedy2d::WindowHandler for StokedWindowHandler {
+  fn on_start(
+    &mut self,
+    helper: &mut WindowHelper<()>,
+    _info: window::WindowStartupInfo,
+    _egui_ctx: &egui::Context,
+  ) {
+    helper.set_icon_from_rgba_pixels(vec![0u8;256*4], Vector2::new(16, 16)).unwrap();
+  }
+
   // MAIN RENDERING LOOP
   fn on_draw(
     &mut self,
@@ -73,21 +146,38 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     {
       let mut playstate = PLAY_STATE.write();
       let hist = (*HISTORY).read();
-      let state = if playstate.playing {
-        let res = hist.iter().find(|(_,t)| *t >= micros_to_seconds(timestamp() - playstate.start));
-        if let Some((s,_)) = res {
+      let history_timestep = if playstate.playing {
+        let res = hist.steps.iter().find(|hts| 
+          hts.current_t >= micros_to_seconds(timestamp() - playstate.start)
+        );
+        if let Some(hts) = res {
           caught_up = false;
-          s
+          hts
         } else {
           // playback is caught up to the present, stop
           playstate.playing = false;
-          &(hist.last().unwrap().0)
+          hist.steps.last().unwrap()
         }
-      } else {&(hist.last().unwrap().0)};
+      } else {hist.steps.last().unwrap()};
       // draw each particle, with (0,0) being the centre of the screen
-      let gradient = colorgrad::spectral();
-      state.iter().zip((*COLOUR).read().iter()).for_each(|(p, c)|{
-        let colour = gradient.at(*c);
+      let scheme = COLOUR_SCHEME.load(Relaxed);
+      let gradient = match scheme{
+        ColourScheme::Spectral => colorgrad::spectral(),
+        ColourScheme::Rainbow => colorgrad::rainbow(),
+        ColourScheme::Virdis => colorgrad::viridis(),
+      };
+      let gradient_flipper = if scheme==ColourScheme::Virdis {1.0} else {-1.0};
+      history_timestep.pos.iter().enumerate().for_each(|(i, p)|{
+        let c = match VISUALIZED_FEATURE.load(Relaxed){
+          VisualizedFeature::Density => {
+            let (min, max) = (0.8, 1.2);
+            (history_timestep.densities[i].min(max)-min)/(max-min)
+          },
+          VisualizedFeature::SpaceFillingCurve => {
+            history_timestep.grid_handle_index[i] as f64 / history_timestep.pos.len() as f64
+          },
+        };
+        let colour = gradient.at((c*2.0-1.0)*gradient_flipper*0.5+0.5);
         graphics.draw_circle(
           camera_transform(p, &off, z, w, h), 
           0.5*z*H as f32, 
@@ -104,9 +194,14 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let mut lambda:f64 = LAMBDA.load(Relaxed);
     let mut resort:u32 = RESORT_ATTRIBUTES_EVERY_N.load(Relaxed);
     let mut curve:GridCurve = GRID_CURVE.load(Relaxed);
+    let mut feature:VisualizedFeature = VISUALIZED_FEATURE.load(Relaxed);
+    let mut colours:ColourScheme = COLOUR_SCHEME.load(Relaxed);
+    // create fonts
+    let header = FontId::proportional(FONT_HEADING_SIZE);
     // SETTINGS WINDOW
     egui::Window::new("Settings").resizable(true).show(egui_ctx, |ui| {
       // restart the animation
+      ui.label(RichText::new("Playback").font(header.clone()));
       if ui.button("Restart Simulation").clicked(){
         restart = true;
       }
@@ -121,8 +216,9 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
           playstate.playing = false;
         }
       });
-      ui.separator();
       // adjust, gravity, stiffness etc. 
+      ui.separator();
+      ui.label(RichText::new("Simulation").font(header.clone()));
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut lambda).speed(0.001).max_decimals(3).clamp_range(0.001..=1.0));
         ui.label("Timestep Lambda");
@@ -141,6 +237,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
       });
       // adjust datastructure settings
       ui.separator();
+      ui.label(RichText::new("Datastructure").font(header.clone()));
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut resort).speed(1));
         ui.label("Resort every N");
@@ -152,16 +249,43 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
           ui.selectable_value(&mut curve, GridCurve::Hilbert, "Hilbert");
         }
       );
+      // adjust GUI
+      ui.separator();
+      ui.label(RichText::new("Visualization").font(header.clone()));
+      egui::ComboBox::from_label("Visualized feature")
+        .selected_text(format!("{:?}", feature))
+        .show_ui(ui, |ui| {
+          ui.selectable_value(&mut feature, VisualizedFeature::Density, "Density");
+          ui.selectable_value(&mut feature, VisualizedFeature::SpaceFillingCurve, "Space Filling Curve");
+        }
+      );
+      egui::ComboBox::from_label("Colour Scheme")
+        .selected_text(format!("{:?}", colours))
+        .show_ui(ui, |ui| {
+          ui.selectable_value(&mut colours, ColourScheme::Spectral, "Spectral");
+          ui.selectable_value(&mut colours, ColourScheme::Rainbow, "Rainbow");
+          ui.selectable_value(&mut colours, ColourScheme::Virdis, "Virdis");
+        }
+      );
       // BOTTOM PANEL
-      let time_available:f64 = (*HISTORY).read().last().unwrap().1;
+      let time_available:f64 = (*HISTORY).read().steps.last().unwrap().current_t;
       egui::panel::TopBottomPanel::bottom("time_panel").resizable(false).show(egui_ctx, |ui|{
         ui.horizontal(|ui| {
           ui.add_sized([50.0,30.0], egui::Label::new(format!("Available time: {:.2}", time_available)));
           ui.add_sized([50.0,30.0], egui::Label::new(if caught_up {"caught up"} else {"playing"}));
         });
-      })
+      });
+
+      // PLOT
+      ui.separator();
+      ui.label(RichText::new("Plot").font(header.clone()));
+      let avg_den_plot: PlotPoints = { (*HISTORY).read().plot_density.clone().into()};
+      Plot::new("plot").view_aspect(2.0).show(ui, |plot_ui| 
+        plot_ui.line(Line::new(avg_den_plot))
+      );
       
     });
+
     LAMBDA.store(lambda, Relaxed);
     GRAVITY.store(gravity, Relaxed);
     K.store(k, Relaxed);
@@ -169,8 +293,12 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     REQUEST_RESTART.store(restart, Relaxed);
     RESORT_ATTRIBUTES_EVERY_N.store(resort, Relaxed);
     GRID_CURVE.store(curve, Relaxed);
+    VISUALIZED_FEATURE.store(feature, Relaxed);
+    COLOUR_SCHEME.store(colours, Relaxed);
+
     helper.request_redraw();
   }
+
 
   fn on_resize(
       &mut self,
