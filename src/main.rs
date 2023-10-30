@@ -19,6 +19,7 @@ mod datastructure;
 
 // switch default allocator
 use mimalloc::MiMalloc;
+use speedy2d::window::{WindowCreationOptions, WindowPosition};
 
 use crate::gui::History;
 #[global_allocator]
@@ -50,7 +51,7 @@ static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
 const H:f64 = 0.2;
 // -> Consequence of kernel support radius 2H:
-const GRIDSIZE:f64 = 2.0*H;
+const KERNEL_SUPPORT:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA:AtomicF64 = AtomicF64::new(0.5);
 const DEFAULT_DT:f64 = 0.01;
@@ -60,6 +61,8 @@ const M:f64 = H*H;
 static RHO_ZERO:AtomicF64 = AtomicF64::new(M/(H*H));
 /// Stiffness constant determining the incompressibility in the state equation
 static K:AtomicF64 = AtomicF64::new(1_500.0);
+/// Viscosity constant Nu
+static NU:AtomicF64 = AtomicF64::new(0.3);
 
 /// Get the current timestamp in microseconds
 fn timestamp()->u128{SystemTime::now().duration_since(UNIX_EPOCH).expect("Error getting current time").as_micros()}
@@ -67,9 +70,12 @@ fn micros_to_seconds(timespan: u128)->f64{0.000_001*timespan as f64}
 
 // ENTRY POINT
 fn main() {
-  let window = Window::new_centered(
-    "Stoked2D", 
-    (WINDOW_SIZE[0].load(Relaxed), WINDOW_SIZE[1].load(Relaxed))
+  let window = Window::new_with_options(
+    "Stoked 2D", 
+    WindowCreationOptions::new_windowed(
+      speedy2d::window::WindowSize::PhysicalPixels((WINDOW_SIZE[0].load(Relaxed), WINDOW_SIZE[1].load(Relaxed)).into()), 
+      Some(WindowPosition::Center))
+      .with_maximized(true)
   ).unwrap();
 
   let _worker = thread::spawn(simulation::run);

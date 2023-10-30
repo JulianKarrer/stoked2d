@@ -1,8 +1,10 @@
+use std::sync::Mutex;
+
 use crate::*;
 use crate::datastructure::Grid;
 use crate::simulation::Attributes;
 use atomic_enum::atomic_enum;
-use egui_speedy2d::egui::{self, RichText};  
+use egui_speedy2d::egui::{self, RichText, ImageButton, Vec2, Ui, TextureId};  
 use egui::FontId;
 use egui::plot::{Line, Plot, PlotPoints};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -13,6 +15,7 @@ use atomic::Atomic;
 
 // GUI RELATED SETTINGS
 const FONT_HEADING_SIZE:f32 = 25.0;
+static ICON_SIZE:Vec2 = Vec2::new(24.0, 24.0);
 
 // GUI RELATED CONSTANTS AND ATOMICS
 static ZOOM:AtomicF32 = AtomicF32::new(20.0);
@@ -28,6 +31,11 @@ lazy_static! {
   static ref DRAG_LAST:Arc<RwLock<Option<speedy2d::dimen::Vec2>>> = Arc::new(RwLock::new(None));
   static ref LAST_FRAME_TIME:Atomic<u128> = Atomic::new(0);
   static ref PLAY_STATE:Arc<RwLock<PlayState>> = Arc::new(RwLock::new(PlayState{playing: false, start: 0}));
+  // image data for png icons:
+  static ref IMAGE_PLAY:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
+  static ref IMAGE_PAUSE:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
+  static ref IMAGE_FORWARD:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
+  static ref IMAGE_REPLAY:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
 }
 
 /// Stores the playback state of the GUI
@@ -190,6 +198,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let mut restart = false;
     let mut gravity = GRAVITY.load(Relaxed);
     let mut k: f64 = K.load(Relaxed);
+    let mut nu: f64 = NU.load(Relaxed);
     let mut rho_0:f64 = RHO_ZERO.load(Relaxed);
     let mut lambda:f64 = LAMBDA.load(Relaxed);
     let mut resort:u32 = RESORT_ATTRIBUTES_EVERY_N.load(Relaxed);
@@ -200,24 +209,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let header = FontId::proportional(FONT_HEADING_SIZE);
     // SETTINGS WINDOW
     egui::Window::new("Settings").resizable(true).show(egui_ctx, |ui| {
-      // restart the animation
-      ui.label(RichText::new("Playback").font(header.clone()));
-      if ui.button("Restart Simulation").clicked(){
-        restart = true;
-      }
-      ui.horizontal(|ui| {
-        if ui.button("Play in Real Time").clicked(){
-          let mut playstate = PLAY_STATE.write();
-          playstate.playing = true;
-          playstate.start = timestamp();
-        }
-        if ui.button("Skip to present").clicked(){
-          let mut playstate = PLAY_STATE.write();
-          playstate.playing = false;
-        }
-      });
       // adjust, gravity, stiffness etc. 
-      ui.separator();
       ui.label(RichText::new("Simulation").font(header.clone()));
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut lambda).speed(0.001).max_decimals(3).clamp_range(0.001..=1.0));
@@ -232,7 +224,11 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         ui.label("Stiffness K");
       });
       ui.horizontal(|ui| {
-        ui.add(egui::DragValue::new(&mut rho_0).speed(0.01));
+        ui.add(egui::DragValue::new(&mut nu).speed(0.001).max_decimals(3));
+        ui.label("Viscosity Nu");
+      });
+      ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut rho_0).speed(0.01).clamp_range(0.01..=100_000.0));
         ui.label("Rest density Rho_0");
       });
       // adjust datastructure settings
@@ -267,14 +263,6 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
           ui.selectable_value(&mut colours, ColourScheme::Virdis, "Virdis");
         }
       );
-      // BOTTOM PANEL
-      let time_available:f64 = (*HISTORY).read().steps.last().unwrap().current_t;
-      egui::panel::TopBottomPanel::bottom("time_panel").resizable(false).show(egui_ctx, |ui|{
-        ui.horizontal(|ui| {
-          ui.add_sized([50.0,30.0], egui::Label::new(format!("Available time: {:.2}", time_available)));
-          ui.add_sized([50.0,30.0], egui::Label::new(if caught_up {"caught up"} else {"playing"}));
-        });
-      });
 
       // PLOT
       ui.separator();
@@ -284,11 +272,45 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         plot_ui.line(Line::new(avg_den_plot))
       );
       
+    });  
+    // BOTTOM PANEL
+    egui::panel::TopBottomPanel::bottom("time_panel").resizable(false).show(egui_ctx, |ui|{
+      ui.horizontal(|ui| {
+        // show  playback time control icons
+        let (play, _) = get_image(IMAGE_PLAY.as_ref(), "./assets/play.png", "play", ui);
+        let (pause, _) = get_image(IMAGE_PAUSE.as_ref(), "./assets/pause.png", "play", ui);
+        let (forward, _) = get_image(IMAGE_FORWARD.as_ref(), "./assets/forward.png", "play", ui);
+        let (replay, _) = get_image(IMAGE_REPLAY.as_ref(), "./assets/replay.png", "play", ui);
+          if ui.add(ImageButton::new(replay, ICON_SIZE))
+            .on_hover_text("Restart")
+            .clicked() {
+            restart = true;
+          }
+          if ui.add(ImageButton::new(if PLAY_STATE.read().playing {pause} else {play}, ICON_SIZE))
+            .on_hover_text("Play in real time")
+            .clicked(){
+            let mut playstate = PLAY_STATE.write();
+            playstate.playing = true;
+            playstate.start = timestamp();
+          }
+          if ui.add(ImageButton::new(forward, ICON_SIZE))
+            .on_hover_text("Skip to present")
+            .clicked(){
+            let mut playstate = PLAY_STATE.write();
+            playstate.playing = false;
+          }
+        // show available playback time
+        let time_available:f64 = (*HISTORY).read().steps.last().unwrap().current_t;
+        ui.add_sized([50.0,30.0], egui::Label::new(format!("Available time: {:.2}", time_available)));
+        ui.add_sized([50.0,30.0], egui::Label::new(if caught_up {"caught up"} else {"playing"}));
+      });
     });
 
+    // write back potentially modified atomics
     LAMBDA.store(lambda, Relaxed);
     GRAVITY.store(gravity, Relaxed);
     K.store(k, Relaxed);
+    NU.store(nu, Relaxed);
     RHO_ZERO.store(rho_0, Relaxed);
     REQUEST_RESTART.store(restart, Relaxed);
     RESORT_ATTRIBUTES_EVERY_N.store(resort, Relaxed);
@@ -296,6 +318,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     VISUALIZED_FEATURE.store(feature, Relaxed);
     COLOUR_SCHEME.store(colours, Relaxed);
 
+    // draw the new frame
     helper.request_redraw();
   }
 
@@ -365,4 +388,30 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
       *(*DRAG_LAST).write() = Some(position);
     }
   }
+}
+
+
+// LOAD IMAGES AND MANAGE TEXTURES
+fn get_image(image_data: &Mutex<Option<egui::TextureHandle>>, path: &str, name: &str, ui: &Ui)->(TextureId, Vec2){
+  let mut binding = image_data.lock().unwrap();
+  let texture = binding.get_or_insert_with(||
+    ui.ctx().load_texture(
+      name,
+      load_image_from_path(path).unwrap(),
+      Default::default()
+    )
+  );
+  let size = texture.size_vec2();
+  (texture.id(), size)
+}
+
+fn load_image_from_path(path: &str) -> Result<egui::ColorImage, image::ImageError> {
+  let image = image::open(path).unwrap();
+  let size = [image.width() as _, image.height() as _];
+  let image_buffer = image.to_rgba8();
+  let pixels = image_buffer.as_flat_samples();
+  Ok(egui::ColorImage::from_rgba_unmultiplied(
+      size,
+      pixels.as_slice(),
+  ))
 }
