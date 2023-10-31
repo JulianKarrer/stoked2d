@@ -30,7 +30,7 @@ lazy_static! {
   static ref DRAG_OFFSET:Arc<RwLock<speedy2d::dimen::Vec2>> = Arc::new(RwLock::new(speedy2d::dimen::Vec2::new(0.0, 0.0)));
   static ref DRAG_LAST:Arc<RwLock<Option<speedy2d::dimen::Vec2>>> = Arc::new(RwLock::new(None));
   static ref LAST_FRAME_TIME:Atomic<u128> = Atomic::new(0);
-  static ref PLAY_STATE:Arc<RwLock<PlayState>> = Arc::new(RwLock::new(PlayState{playing: false, start: 0}));
+  static ref PLAY_STATE:Arc<RwLock<PlaybackState>> = Arc::new(RwLock::new(PlaybackState::CaughtUp));
   // image data for png icons:
   static ref IMAGE_PLAY:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
   static ref IMAGE_PAUSE:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
@@ -39,9 +39,11 @@ lazy_static! {
 }
 
 /// Stores the playback state of the GUI
-struct PlayState{
-  playing: bool,
-  start: u128,
+#[derive(PartialEq)]
+enum PlaybackState{
+  Playing(u128),
+  Paused(f64, usize),
+  CaughtUp
 }
 
 /// Possible features that are visualized with colour
@@ -150,23 +152,28 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     );
 
     // get the current playstate and decide what to display
-    let mut caught_up = true;
+    let mut current_playback_t = 0.0;
+    let mut current_step = 0;
     {
       let mut playstate = PLAY_STATE.write();
       let hist = (*HISTORY).read();
-      let history_timestep = if playstate.playing {
-        let res = hist.steps.iter().find(|hts| 
-          hts.current_t >= micros_to_seconds(timestamp() - playstate.start)
-        );
-        if let Some(hts) = res {
-          caught_up = false;
-          hts
-        } else {
-          // playback is caught up to the present, stop
-          playstate.playing = false;
-          hist.steps.last().unwrap()
-        }
-      } else {hist.steps.last().unwrap()};
+      let history_timestep = match *playstate{
+        PlaybackState::Playing(start_timestep) => {
+          current_playback_t = micros_to_seconds(timestamp() - start_timestep);
+          let res = hist.steps.iter().enumerate().find(|(_, hts)| 
+            hts.current_t >= current_playback_t
+          );
+          if let Some((i, hts)) = res {
+            current_step = i;
+            hts
+          } else {
+            *playstate = PlaybackState::CaughtUp;
+            hist.steps.last().unwrap()
+          }
+        },
+        PlaybackState::Paused(_, current_step) => &hist.steps[current_step],
+        PlaybackState::CaughtUp => hist.steps.last().unwrap(),
+      };
       // draw each particle, with (0,0) being the centre of the screen
       let scheme = COLOUR_SCHEME.load(Relaxed);
       let gradient = match scheme{
@@ -281,28 +288,64 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         let (pause, _) = get_image(IMAGE_PAUSE.as_ref(), "./assets/pause.png", "play", ui);
         let (forward, _) = get_image(IMAGE_FORWARD.as_ref(), "./assets/forward.png", "play", ui);
         let (replay, _) = get_image(IMAGE_REPLAY.as_ref(), "./assets/replay.png", "play", ui);
-          if ui.add(ImageButton::new(replay, ICON_SIZE))
-            .on_hover_text("Restart")
-            .clicked() {
-            restart = true;
-          }
-          if ui.add(ImageButton::new(if PLAY_STATE.read().playing {pause} else {play}, ICON_SIZE))
-            .on_hover_text("Play in real time")
-            .clicked(){
-            let mut playstate = PLAY_STATE.write();
-            playstate.playing = true;
-            playstate.start = timestamp();
-          }
-          if ui.add(ImageButton::new(forward, ICON_SIZE))
-            .on_hover_text("Skip to present")
-            .clicked(){
-            let mut playstate = PLAY_STATE.write();
-            playstate.playing = false;
-          }
+        let mut playstate = PLAY_STATE.write();
+        if ui.add(ImageButton::new(replay, ICON_SIZE))
+          .on_hover_text("Restart")
+          .clicked() {
+          *playstate = PlaybackState::CaughtUp;
+          restart = true;
+        }
+        if ui.add(ImageButton::new(
+          match *playstate {
+            PlaybackState::Playing(_) => pause,
+            PlaybackState::Paused(..) => play,
+            PlaybackState::CaughtUp => play,
+          }, ICON_SIZE))
+          .on_hover_text("Play in real time")
+          .clicked(){
+          match *playstate{
+            PlaybackState::Playing(_) => *playstate = PlaybackState::Paused(current_playback_t, current_step),
+            PlaybackState::Paused(current_playback_t, _) => {
+              *playstate = PlaybackState::Playing(timestamp() - seconds_to_micros(current_playback_t))
+            },
+            PlaybackState::CaughtUp => *playstate = PlaybackState::Playing(timestamp()),
+          };
+        }
+        if ui.add(ImageButton::new(forward, ICON_SIZE))
+          .on_hover_text("Skip to present")
+          .clicked(){
+          *playstate = PlaybackState::CaughtUp
+        }
         // show available playback time
         let time_available:f64 = (*HISTORY).read().steps.last().unwrap().current_t;
-        ui.add_sized([50.0,30.0], egui::Label::new(format!("Available time: {:.2}", time_available)));
-        ui.add_sized([50.0,30.0], egui::Label::new(if caught_up {"caught up"} else {"playing"}));
+        ui.add_sized([50.0,30.0], egui::Label::new(match *playstate {
+          PlaybackState::Playing(_) => "playing",
+          PlaybackState::Paused(_, _) => "paused",
+          PlaybackState::CaughtUp => "caught up",
+        }));
+        let mut time_selected = match *playstate {
+          PlaybackState::Playing(start) => micros_to_seconds(timestamp() - start),
+          PlaybackState::Paused(current_t, _) => current_t,
+          PlaybackState::CaughtUp => time_available,
+        };
+        ui.add_sized([50.0,30.0], egui::Label::new(format!("{:.2}/{:.2}", time_selected, time_available)));
+        // adjust slider width
+        let mut style: egui::Style = (*egui_ctx.style()).clone();
+        style.spacing.slider_width = ui.available_width();
+        egui_ctx.set_style(style);
+        // show slider 
+        if ui.add(egui::Slider::new(&mut time_selected, f64::EPSILON..=time_available).text("current t")).changed(){
+          // scrubbing on the slider is only enabled when playback is paused
+          if let PlaybackState::Paused(..) = *playstate{
+            let hist = (*HISTORY).read();
+            let res = hist.steps.iter().enumerate().find(|(_, hts)| 
+              hts.current_t >= time_selected
+            );
+            if let Some((i, step)) = res {
+              *playstate = PlaybackState::Paused(step.current_t, i)
+            }
+          }
+        };
       });
     });
 

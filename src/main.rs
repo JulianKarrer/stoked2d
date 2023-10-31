@@ -10,6 +10,7 @@ use glam::DVec2;
 use lazy_static::lazy_static;
 use egui_speedy2d::egui::mutex::RwLock;
 use speedy2d::Window;
+use speedy2d::window::{WindowCreationOptions, WindowPosition};
 
 mod gui;
 use gui::StokedWindowHandler;
@@ -19,8 +20,6 @@ mod datastructure;
 
 // switch default allocator
 use mimalloc::MiMalloc;
-use speedy2d::window::{WindowCreationOptions, WindowPosition};
-
 use crate::gui::History;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -36,7 +35,6 @@ lazy_static! {
   static ref BOUNDARY:[DVec2;2] = [DVec2::new(-10.0,-10.0), DVec2::new(10.0,10.0)];
   static ref FLUID:[DVec2;2] = [DVec2::new(-5.0,-5.0), DVec2::new(5.0,5.0)];
   pub static ref HISTORY:Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
-  // pub static ref COLOUR:Arc<RwLock<Vec<f64>>> = Arc::new(RwLock::new(vec![]));
 }
 
 
@@ -67,6 +65,7 @@ static NU:AtomicF64 = AtomicF64::new(0.3);
 /// Get the current timestamp in microseconds
 fn timestamp()->u128{SystemTime::now().duration_since(UNIX_EPOCH).expect("Error getting current time").as_micros()}
 fn micros_to_seconds(timespan: u128)->f64{0.000_001*timespan as f64}
+fn seconds_to_micros(timespan: f64)->u128{(1_000_000.0*timespan).round() as u128}
 
 // ENTRY POINT
 fn main() {
@@ -74,8 +73,8 @@ fn main() {
     "Stoked 2D", 
     WindowCreationOptions::new_windowed(
       speedy2d::window::WindowSize::PhysicalPixels((WINDOW_SIZE[0].load(Relaxed), WINDOW_SIZE[1].load(Relaxed)).into()), 
-      Some(WindowPosition::Center))
-      .with_maximized(true)
+      Some(WindowPosition::Center)
+    ).with_maximized(true)
   ).unwrap();
 
   let _worker = thread::spawn(simulation::run);
