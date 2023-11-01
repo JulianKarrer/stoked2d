@@ -1,54 +1,50 @@
 use crate::{*, sph::{kernel, kernel_derivative}, datastructure::Grid};
-use std::time::Duration;
+use std::{time::Duration, fmt::Debug};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
 use spin_sleep::sleep;
+use atomic_enum::atomic_enum;
 
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub fn run(){
-  let mut state = Attributes::new();
-  let mut grid = Grid::new(state.pos.len());
-  let mut last_update_time = timestamp();
-  let mut current_t = 0.0;
-  let mut since_resort = 0;
-  loop {
-    // restart the simulation if requested
-    if REQUEST_RESTART.fetch_and(false, SeqCst){
-      state = Attributes::new();
-      grid = Grid::new(state.pos.len());
-      *(HISTORY.write()) = History::default();
-      current_t = 0.0;
-      last_update_time = timestamp();
+  loop{
+    let mut state = Attributes::new();
+    let mut grid = Grid::new(state.pos.len());
+    let mut current_t = 0.0;
+    let mut since_resort = 0;
+    *(HISTORY.write()) = History::default();
+    let mut last_update_time = timestamp();
+    while !REQUEST_RESTART.fetch_and(false, atomic::Ordering::SeqCst) {
+      // throttle
+      sleep(Duration::from_micros(SIMULATION_THROTTLE_MICROS.load(Relaxed)));
+
+      // update the datastructure and potentially resort particle attributes
+      grid.update_grid(&state.pos, KERNEL_SUPPORT);
+      if since_resort > RESORT_ATTRIBUTES_EVERY_N.load(Relaxed) {
+        state.resort(&mut grid);
+        since_resort = 0;
+      } else {since_resort += 1;}
+
+      // update densities and pressures
+      update_density_pressure(&state.pos, &mut state.prs, &mut state.den, &grid);
+
+      // apply external forces
+      external_forces(&state.pos, &state.vel, &mut state.acc, &state.den, &grid);
+
+      // apply pressure forces
+      add_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, &grid);
+
+      // enforce rudimentary boundary conditions
+      enforce_boundary_conditions(&mut state.pos, &mut state.vel, &mut state.acc);
+
+      // perform a time step
+      let dt = update_dt(&state.vel, &mut current_t);
+      time_step_euler_cromer(&mut state.pos, &mut state.vel, &mut state.acc, dt);
+
+      // write back the positions to the global buffer for visualization and update the FPS count
+      update_fps(&mut last_update_time);
+      {  HISTORY.write().add_step(&state, &grid, current_t); }
     }
-    // throttle
-    sleep(Duration::from_micros(SIMULATION_THROTTLE_MICROS.load(Relaxed)));
-
-    // update the datastructure and potentially resort particle attributes
-    grid.update_grid(&state.pos, KERNEL_SUPPORT);
-    if since_resort > RESORT_ATTRIBUTES_EVERY_N.load(Relaxed) {
-      state.resort(&mut grid);
-      since_resort = 0;
-    } else {since_resort += 1;}
-
-    // update densities and pressures
-    update_density_pressure(&state.pos, &mut state.prs, &mut state.den, &grid);
-
-    // apply external forces
-    external_forces(&state.pos, &state.vel, &mut state.acc, &state.den, &grid);
-
-    // apply pressure forces
-    add_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, &grid);
-
-    // enforce rudimentary boundary conditions
-    enforce_boundary_conditions(&mut state.pos, &mut state.vel, &mut state.acc);
-
-    // perform a time step
-    let dt = update_dt(&state.vel, &mut current_t);
-    time_step_euler_cromer(&mut state.pos, &mut state.vel, &mut state.acc, dt);
-
-    // write back the positions to the global buffer for visualization and update the FPS count
-    update_fps(&mut last_update_time);
-    {  HISTORY.write().add_step(&state, &grid, current_t); }
   }
 }
 
@@ -62,9 +58,10 @@ pub fn run(){
 /// 
 /// This correpsponds to the Courant-Friedrichs-Lewy condition
 fn update_dt(vel: &[DVec2], current_t: &mut f64)->f64{
+  let max_dt = MAX_DT.load(Relaxed);
   let v_max = vel.par_iter().map(|v|v.length()).reduce_with(|a,b| a.max(b)).unwrap();
-  let mut dt = LAMBDA.load(Relaxed) * H / v_max;
-  if !dt.is_normal() {dt = DEFAULT_DT}
+  let mut dt = (LAMBDA.load(Relaxed) * H / v_max).min(max_dt);
+  if !dt.is_normal() {dt = max_dt}
   *current_t += dt;
   dt
 }
@@ -99,10 +96,18 @@ fn external_forces(pos: &[DVec2], vel: &[DVec2], acc: &mut[DVec2], den: &[f64], 
 fn update_density_pressure(pos: &[DVec2], prs: &mut[f64], den: &mut[f64], grid: &Grid){
   let k = K.load(Relaxed);
   let rho_0 = RHO_ZERO.load(Relaxed);
+  let eq = PRESSURE_EQ.load(Relaxed);
   pos.par_iter().zip(prs).zip(den).for_each(|((x_i, p_i), d)|{
     let rho_i = grid.query(x_i, KERNEL_SUPPORT).par_iter().map(|x_j| M*kernel(x_i, &pos[*x_j])).sum::<f64>();
     *d = rho_i;
-    *p_i = k*(rho_i / rho_0 - 1.0)
+    *p_i = match eq {
+      PressureEquation::Absolute => k*(rho_i - rho_0),
+      PressureEquation::Relative => k*(rho_i / rho_0 - 1.0),
+      PressureEquation::ClampedRelative => (k*(rho_i / rho_0 - 1.0)).max(f64::EPSILON),
+      PressureEquation::Compressible => k*((rho_i / rho_0).powi(7) - 1.0),
+      PressureEquation::ClampedCompressible => (k*((rho_i / rho_0).powi(7) - 1.0)).max(f64::EPSILON),
+    }
+    
   });
 }
 
@@ -137,6 +142,27 @@ fn enforce_boundary_conditions(pos: &mut[DVec2], vel: &mut[DVec2], acc: &mut[DVe
 
 
 // STRUCTURE DEFINITIONS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#[atomic_enum]
+#[derive(PartialEq)]
+pub enum PressureEquation{
+  Absolute,
+  Relative,
+  ClampedRelative,
+  Compressible,
+  ClampedCompressible,
+}
+
+impl std::fmt::Display for PressureEquation{
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", match self{
+      PressureEquation::Absolute => "k·(ρᵢ-ρ₀)",
+      PressureEquation::Relative => "k·(ρᵢ/ρ₀-1)",
+      PressureEquation::ClampedRelative => "k·(ρᵢ/ρ₀-1).max(0)",
+      PressureEquation::Compressible => "k·((ρᵢ/ρ₀)⁷-1)",
+      PressureEquation::ClampedCompressible => "k·((ρᵢ/ρ₀)⁷-1)",
+    })
+  }
+}
 
 /// Holds all particle data as a struct of arrays
 pub struct Attributes{

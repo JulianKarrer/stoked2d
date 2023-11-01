@@ -1,7 +1,7 @@
 #![feature(test)]
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, atomic::AtomicU32};
-use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+use std::sync::atomic::Ordering::Relaxed;
 use std::thread::{self, available_parallelism};
 use std::time::{SystemTime, UNIX_EPOCH};
 use atomic_float::{AtomicF32, AtomicF64};
@@ -9,6 +9,7 @@ use datastructure::{GridCurve, AtomicGridCurve};
 use glam::DVec2;
 use lazy_static::lazy_static;
 use egui_speedy2d::egui::mutex::RwLock;
+use simulation::AtomicPressureEquation;
 use speedy2d::Window;
 use speedy2d::window::{WindowCreationOptions, WindowPosition};
 
@@ -52,13 +53,15 @@ const H:f64 = 0.2;
 const KERNEL_SUPPORT:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA:AtomicF64 = AtomicF64::new(0.5);
-const DEFAULT_DT:f64 = 0.01;
+static MAX_DT:AtomicF64 = AtomicF64::new(0.1);
 /// Mass of a particle
 const M:f64 = H*H;
 /// Rest density of the fluid
 static RHO_ZERO:AtomicF64 = AtomicF64::new(M/(H*H));
 /// Stiffness constant determining the incompressibility in the state equation
 static K:AtomicF64 = AtomicF64::new(1_500.0);
+/// The type of equation relating density to pressure (stress to strain)
+static PRESSURE_EQ:AtomicPressureEquation = AtomicPressureEquation::new(simulation::PressureEquation::ClampedRelative);
 /// Viscosity constant Nu
 static NU:AtomicF64 = AtomicF64::new(0.3);
 

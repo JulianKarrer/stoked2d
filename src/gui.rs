@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use crate::*;
 use crate::datastructure::Grid;
-use crate::simulation::Attributes;
+use crate::simulation::{Attributes, PressureEquation};
 use atomic_enum::atomic_enum;
 use egui_speedy2d::egui::{self, RichText, ImageButton, Vec2, Ui, TextureId};  
 use egui::FontId;
@@ -207,7 +207,9 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let mut k: f64 = K.load(Relaxed);
     let mut nu: f64 = NU.load(Relaxed);
     let mut rho_0:f64 = RHO_ZERO.load(Relaxed);
+    let mut pressure_eq:PressureEquation = PRESSURE_EQ.load(Relaxed);
     let mut lambda:f64 = LAMBDA.load(Relaxed);
+    let mut max_dt:f64 = MAX_DT.load(Relaxed);
     let mut resort:u32 = RESORT_ATTRIBUTES_EVERY_N.load(Relaxed);
     let mut curve:GridCurve = GRID_CURVE.load(Relaxed);
     let mut feature:VisualizedFeature = VISUALIZED_FEATURE.load(Relaxed);
@@ -220,24 +222,41 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
       ui.label(RichText::new("Simulation").font(header.clone()));
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut lambda).speed(0.001).max_decimals(3).clamp_range(0.001..=1.0));
-        ui.label("Timestep Lambda");
+        ui.label("Timestep λ");
+      });
+      ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut max_dt).speed(0.001).max_decimals(3).clamp_range(0.001..=1.0));
+        ui.label("Maximum Δt");
       });
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut gravity).speed(0.1).max_decimals(3));
-        ui.label("Gravity G");
+        ui.label("Gravity g");
       });
       ui.horizontal(|ui| {
-        ui.add(egui::DragValue::new(&mut k).speed(10).max_decimals(0));
-        ui.label("Stiffness K");
+        ui.add(egui::DragValue::new(&mut k).speed(10).max_decimals(0).clamp_range(0.0..=f64::MAX));
+        ui.label("Stiffness k");
       });
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut nu).speed(0.001).max_decimals(3));
-        ui.label("Viscosity Nu");
+        ui.label("Viscosity ν");
       });
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut rho_0).speed(0.01).clamp_range(0.01..=100_000.0));
-        ui.label("Rest density Rho_0");
+        ui.label("Rest density ρ₀");
       });
+      // adjust pressure solver settings
+      ui.separator();
+      ui.label(RichText::new("Pressure Solver").font(header.clone()));
+      egui::ComboBox::from_label("Pressure Equation")
+        .selected_text(format!("{:?}", pressure_eq))
+        .show_ui(ui, |ui: &mut Ui| {
+          ui.selectable_value(&mut pressure_eq, PressureEquation::Relative, "Relative");
+          ui.selectable_value(&mut pressure_eq, PressureEquation::ClampedRelative, "Clamped Relative");
+          ui.selectable_value(&mut pressure_eq, PressureEquation::Compressible, "Compressible");
+          ui.selectable_value(&mut pressure_eq, PressureEquation::ClampedCompressible, "Clamped Compressible");
+          ui.selectable_value(&mut pressure_eq, PressureEquation::Absolute, "Absolute");
+        }
+      );
       // adjust datastructure settings
       ui.separator();
       ui.label(RichText::new("Datastructure").font(header.clone()));
@@ -351,10 +370,12 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
 
     // write back potentially modified atomics
     LAMBDA.store(lambda, Relaxed);
+    MAX_DT.store(max_dt, Relaxed);
     GRAVITY.store(gravity, Relaxed);
     K.store(k, Relaxed);
     NU.store(nu, Relaxed);
     RHO_ZERO.store(rho_0, Relaxed);
+    PRESSURE_EQ.store(pressure_eq, Relaxed);
     REQUEST_RESTART.store(restart, Relaxed);
     RESORT_ATTRIBUTES_EVERY_N.store(resort, Relaxed);
     GRID_CURVE.store(curve, Relaxed);
