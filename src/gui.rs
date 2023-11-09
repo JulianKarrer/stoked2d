@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use crate::*;
 use crate::datastructure::Grid;
-use crate::simulation::{Attributes, PressureEquation};
+use crate::simulation::{Attributes, PressureEquation, Solver, average_density};
 use atomic_enum::atomic_enum;
 use egui_speedy2d::egui::{self, RichText, ImageButton, Vec2, Ui, TextureId};  
 use egui::FontId;
@@ -85,9 +85,19 @@ impl Default for History{
 }
 
 impl History{
+  pub fn reset_and_add(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
+    self.steps.clear();
+    self.plot_density.clear();
+    self.add(state, grid, current_t);
+  }
+
   pub fn add_step(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
+    self.add(state, grid, current_t)
+  }
+
+  fn add(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
     let densities = state.den.clone();
-    let average_density = densities.par_iter().sum::<f64>()/densities.len() as f64;
+    let average_density = average_density(&densities);
     self.plot_density.push([current_t, average_density]);
     self.steps.push(HistoryTimestep{ 
       pos: state.pos.clone(), 
@@ -208,6 +218,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let mut nu: f64 = NU.load(Relaxed);
     let mut rho_0:f64 = RHO_ZERO.load(Relaxed);
     let mut pressure_eq:PressureEquation = PRESSURE_EQ.load(Relaxed);
+    let mut solver:Solver = SOLVER.load(Relaxed);
     let mut lambda:f64 = LAMBDA.load(Relaxed);
     let mut max_dt:f64 = MAX_DT.load(Relaxed);
     let mut resort:u32 = RESORT_ATTRIBUTES_EVERY_N.load(Relaxed);
@@ -255,6 +266,13 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
           ui.selectable_value(&mut pressure_eq, PressureEquation::Compressible, "Compressible");
           ui.selectable_value(&mut pressure_eq, PressureEquation::ClampedCompressible, "Clamped Compressible");
           ui.selectable_value(&mut pressure_eq, PressureEquation::Absolute, "Absolute");
+        }
+      );
+      egui::ComboBox::from_label("Solver")
+        .selected_text(format!("{:?}", solver))
+        .show_ui(ui, |ui: &mut Ui| {
+          ui.selectable_value(&mut solver, Solver::SESPH, "SESPH");
+          ui.selectable_value(&mut solver, Solver::SSESPH, "SSESPH");
         }
       );
       // adjust datastructure settings
@@ -376,6 +394,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     NU.store(nu, Relaxed);
     RHO_ZERO.store(rho_0, Relaxed);
     PRESSURE_EQ.store(pressure_eq, Relaxed);
+    SOLVER.store(solver, Relaxed);
     REQUEST_RESTART.store(restart, Relaxed);
     RESORT_ATTRIBUTES_EVERY_N.store(resort, Relaxed);
     GRID_CURVE.store(curve, Relaxed);

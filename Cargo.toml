@@ -28,6 +28,6 @@ atomic_enum = "0.2.0"
 atomic = "0.6.0"
 mimalloc = { version = "*", default-features = false }
 
-# PARALLELISM AND TIMING
+# PARALLELISM, CACHING AND TIMING
 rayon = "1.8.0"
 spin_sleep = "1.1.1"

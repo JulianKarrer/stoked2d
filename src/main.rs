@@ -9,7 +9,7 @@ use datastructure::{GridCurve, AtomicGridCurve};
 use glam::DVec2;
 use lazy_static::lazy_static;
 use egui_speedy2d::egui::mutex::RwLock;
-use simulation::AtomicPressureEquation;
+use simulation::{AtomicPressureEquation, AtomicSolver};
 use speedy2d::Window;
 use speedy2d::window::{WindowCreationOptions, WindowPosition};
 
@@ -36,6 +36,7 @@ lazy_static! {
   static ref BOUNDARY:[DVec2;2] = [DVec2::new(-10.0,-10.0), DVec2::new(10.0,10.0)];
   static ref FLUID:[DVec2;2] = [DVec2::new(-5.0,-5.0), DVec2::new(5.0,5.0)];
   pub static ref HISTORY:Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
+  pub static ref SOLVER:AtomicSolver = AtomicSolver::new(simulation::Solver::SESPH);
 }
 
 
@@ -52,7 +53,7 @@ const H:f64 = 0.2;
 // -> Consequence of kernel support radius 2H:
 const KERNEL_SUPPORT:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
-static LAMBDA:AtomicF64 = AtomicF64::new(0.5);
+static LAMBDA:AtomicF64 = AtomicF64::new(0.2);
 static MAX_DT:AtomicF64 = AtomicF64::new(0.1);
 /// Mass of a particle
 const M:f64 = H*H;
@@ -80,6 +81,6 @@ fn main() {
     ).with_maximized(true)
   ).unwrap();
 
-  let _worker = thread::spawn(simulation::run);
-  window.run_loop(egui_speedy2d::WindowWrapper::new(StokedWindowHandler{}))
+  thread::spawn(||{loop {simulation::run()}});
+  window.run_loop(egui_speedy2d::WindowWrapper::new(StokedWindowHandler{}));
 }

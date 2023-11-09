@@ -4,7 +4,6 @@ use lindel::{morton_encode, hilbert_encode};
 use rayon::prelude::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator, IntoParallelRefMutIterator};
 use voracious_radix_sort::{Radixable, RadixSort};
 
-
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Handle{
   pub index: usize,
@@ -44,7 +43,8 @@ impl Radixable<u64> for Handle{
 pub struct Grid{
   min: DVec2,
   pub handles:Vec<Handle>,
-  cells:Vec<Handle>
+  cells:Vec<Handle>,
+  pub neighbours: Vec<Vec<usize>>,
 }
 
 #[derive(PartialEq)]
@@ -60,7 +60,6 @@ fn get_key(p:&DVec2, min: &DVec2, gridsize: f64, curve: GridCurve)->u64{
     GridCurve::Morton => morton_encode(ind),
     GridCurve::Hilbert => hilbert_encode(ind),
   }
-  
 }
 
 static DIRECTIONS:[DVec2;9] = [
@@ -86,13 +85,15 @@ impl Grid{
     self.cells = self.handles.par_iter().enumerate().map(|(i,h)|
       if i==0 || h.cell != self.handles[i-1].cell {Some(Handle{index: i, cell: h.cell})} else {None}
     ).flatten().collect();
+    // precompute all neighbours
+    self.neighbours = pos.par_iter().map(|p|self.query_radius(p, gridsize)).collect();
   }
 
   /// Query the for all neighbours within a given radius.
   /// A superset of the actual neighbours is returned, potentially containing non-neighbours.
   /// Since the results of this function are typically used as input to compact kernel functions, 
   /// this is unproblematic.
-  pub fn query(&self, p:&DVec2, search_radius:f64)->Vec<usize>{
+  fn query_radius(&self, p:&DVec2, search_radius:f64)->Vec<usize>{
     let curve = GRID_CURVE.load(Relaxed);
     DIRECTIONS.iter().map(|d|{
       let x = *p+(*d)*search_radius;
@@ -110,9 +111,22 @@ impl Grid{
     ).flatten().collect()
   }
 
+  /// Query the for the precomputed neighbour list computed when grid.update is called.
+  /// A superset of the actual neighbours is returned, potentially containing non-neighbours.
+  /// Since the results of this function are typically used as input to compact kernel functions, 
+  /// this is unproblematic.
+  pub fn query_index(&self, i:usize)->&[usize]{
+    &self.neighbours[i]
+  }
+
   /// Create a new grid, allocating space for the given number of particles
   pub fn new(number_of_particles:usize)->Self{
-    Self { min: DVec2::NEG_INFINITY, handles: vec![Handle::default(); number_of_particles], cells: vec![] }
+    Self { 
+      min: DVec2::NEG_INFINITY, 
+      handles: vec![Handle::default(); number_of_particles], 
+      cells: vec![], 
+      neighbours: vec![vec![]; number_of_particles]
+    }
   }
 }
 
@@ -144,19 +158,20 @@ mod tests {
   }
 
   #[test]
-  fn grid_artificial_example(){
+  fn grid_radius_artificial_example(){
     let grid = Grid{ 
       min: DVec2::ZERO, 
       handles: vec![Handle{ index: 0, cell: 0 }, Handle{ index: 1, cell: 0 }, Handle{ index: 2, cell: 3 }, Handle{ index: 3, cell: 8 }], 
-      cells: vec![Handle{ index: 0, cell: 0 }, Handle{ index: 2, cell: 3 }, Handle{ index: 3, cell: 8 }, ]
+      cells: vec![Handle{ index: 0, cell: 0 }, Handle{ index: 2, cell: 3 }, Handle{ index: 3, cell: 8 }, ],
+      neighbours: vec![]
     };
-    let answer = grid.query(&(DVec2::ONE*0.5), 1.0);
+    let answer = grid.query_radius(&(DVec2::ONE*0.5), 1.0);
     let expected = vec![0usize, 1];
     assert!(answer.iter().zip(expected).all(|(a,b)|*a==b))
   }
 
   #[test]
-  fn grid_update_and_query_correctness() {
+  fn grid_radius_update_and_query_correctness() {
     let curve = GRID_CURVE.load(Relaxed);
     for _ in 0..REPETITIONS{
       let mut grid = Grid::new(PARTICLES);
@@ -164,7 +179,7 @@ mod tests {
       grid.update_grid(&pos, GRIDSIZE);
       for _ in 0..TEST_RUNS {
         let p = random_vec2(RANGE);
-        let answer:Vec<usize> = grid.query(&p, GRIDSIZE);
+        let answer:Vec<usize> = grid.query_radius(&p, GRIDSIZE);
         let expected:Vec<(usize, DVec2)> = pos.par_iter().enumerate().flat_map(|(i, x)|
           if x.distance(p) <= GRIDSIZE {
             Some((i,*x))
@@ -201,7 +216,7 @@ mod tests {
         grid.update_grid(&pos, GRIDSIZE);
         for _ in 0..BENCH_QUERIES_PER_STEP{
           queries.par_iter().for_each(|q|{test::black_box( 
-            grid.query(q, GRIDSIZE) 
+            grid.query_radius(q, GRIDSIZE) 
           );});
         }
         pos.par_iter_mut().for_each(|p|{*p+=random_vec2(BENCH_PARTICLE_DX_PER_TIMESTEP);})
