@@ -61,6 +61,8 @@ const M:f64 = H*H;
 static RHO_ZERO:AtomicF64 = AtomicF64::new(M/(H*H));
 /// Stiffness constant determining the incompressibility in the state equation
 static K:AtomicF64 = AtomicF64::new(1_500.0);
+/// The maximum acceptable absolute density deviation in iterative SESPH with splitting
+static MAX_RHO_DEVIATION:AtomicF64 = AtomicF64::new(0.05);
 /// The type of equation relating density to pressure (stress to strain)
 static PRESSURE_EQ:AtomicPressureEquation = AtomicPressureEquation::new(simulation::PressureEquation::ClampedRelative);
 /// Viscosity constant Nu

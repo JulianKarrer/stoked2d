@@ -219,6 +219,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let mut rho_0:f64 = RHO_ZERO.load(Relaxed);
     let mut pressure_eq:PressureEquation = PRESSURE_EQ.load(Relaxed);
     let mut solver:Solver = SOLVER.load(Relaxed);
+    let mut max_delta_rho:f64 = MAX_RHO_DEVIATION.load(Relaxed);
     let mut lambda:f64 = LAMBDA.load(Relaxed);
     let mut max_dt:f64 = MAX_DT.load(Relaxed);
     let mut resort:u32 = RESORT_ATTRIBUTES_EVERY_N.load(Relaxed);
@@ -273,8 +274,13 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         .show_ui(ui, |ui: &mut Ui| {
           ui.selectable_value(&mut solver, Solver::SESPH, "SESPH");
           ui.selectable_value(&mut solver, Solver::SSESPH, "SSESPH");
+          ui.selectable_value(&mut solver, Solver::ISESPH, "ISESPH");
         }
       );
+      ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut max_delta_rho).speed(0.01).max_decimals(3));
+        ui.label("Max. |Δρ| η");
+      });
       // adjust datastructure settings
       ui.separator();
       ui.label(RichText::new("Datastructure").font(header.clone()));
@@ -395,6 +401,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     RHO_ZERO.store(rho_0, Relaxed);
     PRESSURE_EQ.store(pressure_eq, Relaxed);
     SOLVER.store(solver, Relaxed);
+    MAX_RHO_DEVIATION.store(max_delta_rho, Relaxed);
     REQUEST_RESTART.store(restart, Relaxed);
     RESORT_ATTRIBUTES_EVERY_N.store(resort, Relaxed);
     GRID_CURVE.store(curve, Relaxed);

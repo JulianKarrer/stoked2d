@@ -28,7 +28,7 @@ pub fn run(){
     grid.update_grid(&state.pos, KERNEL_SUPPORT);
 
     // perform an update step using the selected fluid solver
-    SOLVER.load(Relaxed).solve(&mut state, &mut grid, &mut current_t);
+    SOLVER.load(Relaxed).solve(&mut state, &grid, &mut current_t);
 
     // enforce rudimentary boundary conditions
     enforce_boundary_conditions(&mut state.pos, &mut state.vel, &mut state.acc);
@@ -52,31 +52,50 @@ fn sesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64){
   apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid);
   // apply pressure forces
   add_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid);
-  // enforce rudimentary boundary conditions
-  enforce_boundary_conditions(&mut state.pos, &mut state.vel, &mut state.acc);
   // perform a time step
   let dt = update_dt(&state.vel, current_t);
   time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
 }
 
 /// Perform a simulation update step using a SESPH solver with splitting
-fn ssesph(state: &mut Attributes, grid: &mut Grid, current_t: &mut f64){
+fn ssesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64){
   // apply external forces
   update_densities(&state.pos, &mut state.den, grid);
   apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid);
-  // predict velocities and positions based on non-pressure accelerations
+  // predict velocities and densities based on non-pressure accelerations
   let dt = update_dt(&state.vel, current_t);
-  state.pos_pred = state.pos.clone();
-  time_step_euler_cromer(&mut state.pos_pred, &mut state.vel, &state.acc, dt);
-  enforce_boundary_conditions(&mut state.pos_pred, &mut state.vel, &mut state.acc);
-  // update the grid to account for predicted positions
-  grid.update_grid(&state.pos_pred, KERNEL_SUPPORT);
-  // compute densities at predicted positions
-  update_densities(&state.pos_pred, &mut state.den, grid);
+  time_step_explicit_euler_one_quantity(&mut state.vel, &state.acc, dt);
+  predict_densities(&mut state.den, &state.vel, &state.pos, grid, dt);
+  // calculate pressure forces/accelerations from the predicted densities
   update_pressures(&state.den, &mut state.prs);
-  // overwrite! the non-pressure accelerations with pressure accelerations
-  overwrite_pressure_accelerations(&state.pos_pred, &state.den, &state.prs, &mut state.acc, grid);
-  // perform another timestep
+  overwrite_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid);
+  // refine the predicted velocity using this pressure acceleration and update positions
+  time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
+}
+
+
+/// Perform a simulation update step using a SESPH solver with splitting
+fn isesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64){
+  // apply external forces
+  update_densities(&state.pos, &mut state.den, grid);
+  apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid);
+  // predict velocities and densities based on non-pressure accelerations
+  let dt = update_dt(&state.vel, current_t);
+  time_step_explicit_euler_one_quantity(&mut state.vel, &state.acc, dt);
+  let rho_zero = RHO_ZERO.load(Relaxed);
+  let max_rho_dev = MAX_RHO_DEVIATION.load(Relaxed);
+  loop{
+    predict_densities(&mut state.den, &state.vel, &state.pos, grid, dt);
+    // calculate pressure forces/accelerations from the predicted densities
+    update_pressures(&state.den, &mut state.prs);
+    overwrite_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid);
+    // refine the velocity prediction using the predicted pressure accelerations
+    time_step_explicit_euler_one_quantity(&mut state.vel, &state.acc, dt);
+    if average_density(&state.den)/rho_zero-1.0 < max_rho_dev || REQUEST_RESTART.load(Relaxed) {
+      break;
+    }
+  }
+  // refine the predicted velocity using this pressure acceleration and update positions
   time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
 }
 
@@ -175,6 +194,26 @@ fn time_step_euler_cromer(pos: &mut[DVec2], vel: &mut[DVec2], acc: &[DVec2], dt:
   })
 }
 
+/// Perform an explicit Euler numerical time integration step for a single quantity.
+/// This simply means that x := x' * dt
+fn time_step_explicit_euler_one_quantity(quantity: &mut[DVec2], derivative: &[DVec2], dt:f64){
+  quantity.par_iter_mut().zip(derivative).for_each(|(v,a)|{
+    *v += *a * dt;
+  })
+}
+
+fn predict_densities(den: &mut[f64], v_star: &[DVec2], pos: &[DVec2], grid: &Grid, dt:f64){
+  den.par_iter_mut().enumerate().for_each(|(i, rho_i)|{
+    let neighbours = grid.query_index(i);
+    *rho_i = neighbours.iter().map(|j|
+        M * kernel(&pos[i], &pos[*j])
+      ).sum::<f64>()
+      + dt * neighbours.iter().map(|j|
+        M * (v_star[i] - v_star[*j]).dot(kernel_derivative(&pos[i], &pos[*j]))
+      ).sum::<f64>();
+  })
+}
+
 pub fn average_density(den: &[f64])->f64{
   den.par_iter().sum::<f64>()/den.len() as f64
 }
@@ -198,7 +237,8 @@ fn enforce_boundary_conditions(pos: &mut[DVec2], vel: &mut[DVec2], acc: &mut[DVe
 /// A fluid solver, implementing a single simulation step of some SPH method.
 pub enum Solver{
   SESPH,
-  SSESPH
+  SSESPH,
+  ISESPH,
 }
 
 impl Solver{
@@ -209,10 +249,11 @@ impl Solver{
   /// uninitialized garbage. 
   /// 
   /// The grid can also be assumed to be accurate.
-  fn solve(&self, state: &mut Attributes, grid: &mut Grid, current_t: &mut f64){
+  fn solve(&self, state: &mut Attributes, grid: &Grid, current_t: &mut f64){
     match self {
       Solver::SESPH => sesph(state, grid, current_t),
       Solver::SSESPH => ssesph(state, grid, current_t),
+      Solver::ISESPH => isesph(state, grid, current_t),
     }
   }
 }
@@ -250,7 +291,6 @@ pub struct Attributes{
   pub acc:Vec<DVec2>, 
   pub prs:Vec<f64>,
   pub den:Vec<f64>,
-  pub pos_pred:Vec<DVec2>, 
 }
 
 impl Attributes{
@@ -264,7 +304,6 @@ impl Attributes{
     let mut pos:Vec<DVec2> = Vec::with_capacity(n); 
     let mut vel:Vec<DVec2> = Vec::with_capacity(n); 
     let mut acc:Vec<DVec2> = Vec::with_capacity(n); 
-    let pos_pred:Vec<DVec2> = Vec::with_capacity(n); 
     // initialization
     let mut x = FLUID[0].x;
     let mut y = FLUID[0].y;
@@ -281,7 +320,7 @@ impl Attributes{
     let prs = vec![0.0;pos.len()];
     let den = vec![M/(H*H);pos.len()];
     // return new set of attributes
-    Self { pos, vel, acc, prs, den, pos_pred }
+    Self { pos, vel, acc, prs, den }
   }
 
   /// Resort all particle attributes according to some given order, which must be
