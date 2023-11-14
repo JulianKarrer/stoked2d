@@ -93,7 +93,7 @@ impl Grid{
   /// A superset of the actual neighbours is returned, potentially containing non-neighbours.
   /// Since the results of this function are typically used as input to compact kernel functions, 
   /// this is unproblematic.
-  fn query_radius(&self, p:&DVec2, search_radius:f64)->Vec<usize>{
+  pub fn query_radius(&self, p:&DVec2, search_radius:f64)->Vec<usize>{
     let curve = GRID_CURVE.load(Relaxed);
     DIRECTIONS.iter().map(|d|{
       let x = *p+(*d)*search_radius;

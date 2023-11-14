@@ -33,8 +33,9 @@ const FPS_SMOOTING:f64 = 0.95;
 lazy_static! {
   pub static ref THREADS:usize = available_parallelism().unwrap().get();
   pub static ref REQUEST_RESTART:Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-  static ref BOUNDARY:[DVec2;2] = [DVec2::new(-10.0,-10.0), DVec2::new(10.0,10.0)];
-  static ref FLUID:[DVec2;2] = [DVec2::new(-5.0,-5.0), DVec2::new(5.0,5.0)];
+  static ref BOUNDARY:[DVec2;2] = [DVec2::new(-20.0,-10.0), DVec2::new(20.0,10.0)];
+  static ref FLUID:[DVec2;2] = [DVec2::new(-20.0+H*2.0,-10.0+H*2.0), DVec2::new(0.0,-5.0)];
+  static ref BOUNDARY_PARTICLES:Arc<RwLock<Vec<DVec2>>> = Arc::new(RwLock::new(vec![]));
   pub static ref HISTORY:Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
   pub static ref SOLVER:AtomicSolver = AtomicSolver::new(simulation::Solver::SESPH);
 }

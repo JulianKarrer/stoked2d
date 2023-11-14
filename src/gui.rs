@@ -160,6 +160,15 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
       ), 
       Color::BLACK
     );
+    // draw all boundary particles
+    let boundary_colour = Color::from_rgba(1.0, 1.0, 1.0, 0.5);
+    BOUNDARY_PARTICLES.read().iter().for_each(|p|{
+      graphics.draw_circle(
+        camera_transform(p, &off, z, w, h), 
+        0.5*z*H as f32, 
+        boundary_colour
+      )
+    });
 
     // get the current playstate and decide what to display
     let mut current_playback_t = 0.0;
@@ -278,7 +287,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         }
       );
       ui.horizontal(|ui| {
-        ui.add(egui::DragValue::new(&mut max_delta_rho).speed(0.01).max_decimals(3));
+        ui.add(egui::DragValue::new(&mut max_delta_rho).speed(0.01).max_decimals(3).clamp_range(0.01..=0.1));
         ui.label("Max. |Δρ| η");
       });
       // adjust datastructure settings
