@@ -231,6 +231,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let mut max_delta_rho:f64 = MAX_RHO_DEVIATION.load(Relaxed);
     let mut lambda:f64 = LAMBDA.load(Relaxed);
     let mut max_dt:f64 = MAX_DT.load(Relaxed);
+    let mut init_dt:f64 = INITIAL_DT.load(Relaxed);
     let mut resort:u32 = RESORT_ATTRIBUTES_EVERY_N.load(Relaxed);
     let mut curve:GridCurve = GRID_CURVE.load(Relaxed);
     let mut feature:VisualizedFeature = VISUALIZED_FEATURE.load(Relaxed);
@@ -244,6 +245,10 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut lambda).speed(0.001).max_decimals(3).clamp_range(0.001..=1.0));
         ui.label("Timestep λ");
+      });
+      ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut init_dt).speed(0.0001).max_decimals(4).clamp_range(0.0001..=1.0));
+        ui.label("Initial Δt");
       });
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut max_dt).speed(0.001).max_decimals(3).clamp_range(0.001..=1.0));
@@ -404,6 +409,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     // write back potentially modified atomics
     LAMBDA.store(lambda, Relaxed);
     MAX_DT.store(max_dt, Relaxed);
+    INITIAL_DT.store(init_dt, Relaxed);
     GRAVITY.store(gravity, Relaxed);
     K.store(k, Relaxed);
     NU.store(nu, Relaxed);

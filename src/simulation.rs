@@ -31,12 +31,9 @@ pub fn run(){
 
     // perform an update step using the selected fluid solver
     SOLVER.load(Relaxed).solve(&mut state, &grid, &mut current_t, &boundary);
-
-    // enforce rudimentary boundary conditions
     enforce_boundary_conditions(&mut state.pos, &mut state.vel, &mut state.acc);
 
     // write back the positions to the global buffer for visualization and update the FPS count
-    update_densities(&state.pos, &mut state.den, &grid, &boundary); // TODO: remove
     update_fps(&mut last_update_time);
     {  HISTORY.write().add_step(&state, &grid, current_t); }
   }
@@ -62,12 +59,11 @@ fn sesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Bo
 /// Perform a simulation update step using a SESPH solver with splitting
 fn ssesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary){
   // apply external forces
-  update_densities(&state.pos, &mut state.den, grid, boundary);
   apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid);
   // predict velocities and densities based on non-pressure accelerations
   let dt = update_dt(&state.vel, current_t);
   time_step_explicit_euler_one_quantity(&mut state.vel, &state.acc, dt);
-  predict_densities(&mut state.den, &state.vel, &state.pos, grid,  boundary, dt);
+  predict_densities(&mut state.den, &state.vel, &state.pos, grid, boundary, dt);
   // calculate pressure forces/accelerations from the predicted densities
   update_pressures(&state.den, &mut state.prs);
   overwrite_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid, boundary);
@@ -79,7 +75,6 @@ fn ssesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &B
 /// Perform a simulation update step using a SESPH solver with splitting
 fn isesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary){
   // apply external forces
-  update_densities(&state.pos, &mut state.den, grid, boundary);
   apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid);
   // predict velocities and densities based on non-pressure accelerations
   let dt = update_dt(&state.vel, current_t);
@@ -98,7 +93,8 @@ fn isesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &B
     }
   }
   // refine the predicted velocity using this pressure acceleration and update positions
-  time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
+  time_step_explicit_euler_one_quantity(&mut state.pos, &state.vel, dt);
+  // time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
 }
 
 // FUNCTIONS USED ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -109,10 +105,9 @@ fn isesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &B
 /// 
 /// This correpsponds to the Courant-Friedrichs-Lewy condition
 fn update_dt(vel: &[DVec2], current_t: &mut f64)->f64{
-  let max_dt = MAX_DT.load(Relaxed);
   let v_max = vel.par_iter().map(|v|v.length()).reduce_with(|a,b| a.max(b)).unwrap();
-  let mut dt = (LAMBDA.load(Relaxed) * H / v_max).min(max_dt);
-  if !dt.is_normal() {dt = max_dt}
+  let mut dt = (LAMBDA.load(Relaxed) * H / v_max).min(MAX_DT.load(Relaxed));
+  if v_max < VELOCITY_EPSILON || !dt.is_normal() {dt = INITIAL_DT.load(Relaxed)}
   *current_t += dt;
   dt
 }
@@ -173,7 +168,7 @@ fn predict_densities(den: &mut[f64], v_star: &[DVec2], pos: &[DVec2], grid: &Gri
       
       // density from current boundary neighbours
       + M * boundary_neighbours.iter().map(|j|
-        kernel(&pos[i], &pos[*j])
+        kernel(&pos[i], &boundary.pos[*j])
       ).sum::<f64>()
       // density from predicted boundary neighbours
       + dt * M * boundary_neighbours.iter().map(|j|
@@ -207,14 +202,17 @@ fn update_pressures(den: &[f64], prs:&mut[f64]){
 /// Compute pressure accelerations from the momentum-preserving SPH approximation of the density gradient,
 /// adding the result to the current accelerations
 fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut[DVec2], grid: &Grid, boundary: &Boundary){
+  let rho_0 = RHO_ZERO.load(Relaxed);
+  let one_over_rho_0_squared = 1.0/rho_0*rho_0;
   pos.par_iter().enumerate().zip(prs).zip(den).zip(acc)
   .for_each(|((((i, x_i), p_i), rho_i), acc)|{
+    let p_i_over_rho_i_squared = p_i/(rho_i*rho_i);
     *acc += 
       -M * grid.query_index(i).iter().map(|j| 
-        (p_i/(rho_i*rho_i) + prs[*j]/(den[*j]*den[*j])) * kernel_derivative(x_i, &pos[*j])
+        (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * kernel_derivative(x_i, &pos[*j])
       ).sum::<DVec2>()
-      -M * 2.0 * p_i/(rho_i*rho_i)* boundary.grid.query_radius(x_i, KERNEL_SUPPORT).iter().map(|j| 
-        kernel_derivative(x_i, &boundary.pos[*j])
+      -M * boundary.grid.query_radius(x_i, KERNEL_SUPPORT).iter().map(|j| 
+        (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * kernel_derivative(x_i, &boundary.pos[*j])
       ).sum::<DVec2>();
   })
 }
@@ -222,14 +220,17 @@ fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut
 /// Compute pressure accelerations from the momentum-preserving SPH approximation of the density gradient,
 /// overwriting the current accelerations
 fn overwrite_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut[DVec2], grid: &Grid, boundary: &Boundary){
+  let rho_0 = RHO_ZERO.load(Relaxed);
+  let one_over_rho_0_squared = 1.0/rho_0*rho_0;
   pos.par_iter().enumerate().zip(prs).zip(den).zip(acc)
   .for_each(|((((i, x_i), p_i), rho_i), acc)|{
+    let p_i_over_rho_i_squared = p_i/(rho_i*rho_i);
     *acc = 
       -M * grid.query_index(i).iter().map(|j| 
-        (p_i/(rho_i*rho_i) + prs[*j]/(den[*j]*den[*j])) * kernel_derivative(x_i, &pos[*j])
+        (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * kernel_derivative(x_i, &pos[*j])
       ).sum::<DVec2>()
-      -M * 2.0 * p_i/(rho_i*rho_i)* boundary.grid.query_radius(x_i, KERNEL_SUPPORT).iter().map(|j| 
-        kernel_derivative(x_i, &boundary.pos[*j])
+      -M * boundary.grid.query_radius(x_i, KERNEL_SUPPORT).iter().map(|j| 
+        (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * kernel_derivative(x_i, &boundary.pos[*j])
       ).sum::<DVec2>();
   })
 }
