@@ -1,7 +1,7 @@
 use std::f64::consts::PI;
 use crate::*;
 
-const KERNEL_CUBIC_NORMALIZE: f64 = 5.0/(14.0*PI*H*H);
+pub const KERNEL_CUBIC_NORMALIZE: f64 = 5.0/(14.0*PI*H*H);
 
 pub fn kernel(x_i:&DVec2, x_j:&DVec2)->f64{
   let q = x_i.distance(*x_j)/H;

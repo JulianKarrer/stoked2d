@@ -7,6 +7,7 @@ use atomic_enum::atomic_enum;
 use egui_speedy2d::egui::{self, RichText, ImageButton, Vec2, Ui, TextureId};  
 use egui::FontId;
 use egui::plot::{Line, Plot, PlotPoints};
+use ocl::prm::{Float, Float2};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use speedy2d::shape::Rectangle;
 use speedy2d::window::MouseScrollDistance;
@@ -67,7 +68,7 @@ enum ColourScheme {
 /// Represents the features of the simulation that are stored for visualization
 #[derive(Default)]
 pub struct HistoryTimestep{
-  pub pos: Vec<DVec2>,
+  pub pos: Vec<[f64; 2]>,
   pub current_t: f64,
   pub densities: Vec<f64>,
   pub grid_handle_index: Vec<usize>
@@ -86,8 +87,7 @@ impl Default for History{
 
 impl History{
   pub fn reset_and_add(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
-    self.steps.clear();
-    self.plot_density.clear();
+    self.reset();
     self.add(state, grid, current_t);
   }
 
@@ -95,12 +95,33 @@ impl History{
     self.add(state, grid, current_t)
   }
 
+  fn reset(&mut self){
+    self.steps.clear();
+    self.steps.shrink_to_fit();
+    self.plot_density.clear();
+    self.plot_density.shrink_to_fit();
+  }
+
+  pub fn gpu_reset_and_add(&mut self, pos:&[Float2], den:&[Float], current_t:f64){
+    self.reset();
+    self.gpu_add_step(pos, den, current_t);
+  }
+
+  pub fn gpu_add_step(&mut self, pos:&[Float2], den:&[Float], current_t:f64){
+    self.steps.push(HistoryTimestep{ 
+      pos: pos.par_iter().map(|p| [p[0] as f64, p[1] as f64]).collect(), 
+      current_t, 
+      densities: den.par_iter().map(|d| d[0] as f64).collect(), 
+      grid_handle_index: vec![0; pos.len()],
+    })
+  }
+
   fn add(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
     let densities = state.den.clone();
     let average_density = average_density(&densities);
     self.plot_density.push([current_t, average_density]);
     self.steps.push(HistoryTimestep{ 
-      pos: state.pos.clone(), 
+      pos: state.pos.par_iter().map(|p|p.to_array()).collect(), 
       current_t, 
       densities, 
       grid_handle_index: grid.handles.par_iter().map(|x| x.index ).collect(),
@@ -109,10 +130,10 @@ impl History{
 }
 
 /// Performs a camera transformation from a given point in world-space to drawing space
-fn camera_transform(p: &DVec2, offset: &Vector2<f32>, zoom: f32, width: f32, height: f32)->Vector2<f32>{
+fn camera_transform(p: &[f64;2], offset: &Vector2<f32>, zoom: f32, width: f32, height: f32)->Vector2<f32>{
   Vector2::new(
-    zoom*p.x as f32 + offset.x + width*0.5  , 
-   -zoom*p.y as f32 + offset.y + height*0.5 )
+    zoom*p[0] as f32 + offset.x + width*0.5  , 
+   -zoom*p[1] as f32 + offset.y + height*0.5 )
 }
 
 pub struct StokedWindowHandler;
@@ -149,14 +170,14 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
 
     // draw the boundary
     graphics.draw_rectangle(Rectangle::new(
-      camera_transform(&BOUNDARY[0], &off, z, w, h), 
-      camera_transform(&BOUNDARY[1], &off, z, w, h), 
+      camera_transform(&BOUNDARY[0].to_array(), &off, z, w, h), 
+      camera_transform(&BOUNDARY[1].to_array(), &off, z, w, h), 
       ), 
       Color::WHITE
     );
     graphics.draw_rectangle(Rectangle::new(
-      camera_transform(&(BOUNDARY[0]+DVec2::ONE*BOUNDARY_THCKNESS), &off, z, w, h), 
-      camera_transform(&(BOUNDARY[1]-DVec2::ONE*BOUNDARY_THCKNESS), &off, z, w, h), 
+      camera_transform(&(BOUNDARY[0]+DVec2::ONE*BOUNDARY_THCKNESS).to_array(), &off, z, w, h), 
+      camera_transform(&(BOUNDARY[1]-DVec2::ONE*BOUNDARY_THCKNESS).to_array(), &off, z, w, h), 
       ), 
       Color::BLACK
     );
@@ -164,7 +185,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let boundary_colour = Color::from_rgba(1.0, 1.0, 1.0, 0.5);
     BOUNDARY_PARTICLES.read().iter().for_each(|p|{
       graphics.draw_circle(
-        camera_transform(p, &off, z, w, h), 
+        camera_transform(&p.to_array(), &off, z, w, h), 
         0.5*z*H as f32, 
         boundary_colour
       )

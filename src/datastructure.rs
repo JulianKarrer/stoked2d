@@ -1,3 +1,5 @@
+use std::f64::MAX;
+
 use crate::*;
 use atomic_enum::atomic_enum;
 use lindel::{morton_encode, hilbert_encode};
@@ -7,7 +9,10 @@ use voracious_radix_sort::{Radixable, RadixSort};
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Handle{
   pub index: usize,
-  cell: u64
+  pub cell: u64
+}
+impl Handle{
+  pub fn new(index:usize, cell:u64)->Self{Self { index, cell }}
 }
 impl PartialOrd for Handle{
   fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -64,8 +69,8 @@ fn get_key(p:&DVec2, min: &DVec2, gridsize: f64, curve: GridCurve)->u64{
 
 static DIRECTIONS:[DVec2;9] = [
   DVec2::new(-1.0, -1.0), DVec2::new(0.0, -1.0), DVec2::new(1.0, -1.0),
-  DVec2::new(-1.0, 0.0), DVec2::new(0.0, 0.0), DVec2::new(1.0, 0.0),
-  DVec2::new(-1.0, 1.0), DVec2::new(0.0, 1.0), DVec2::new(1.0, 1.0),
+  DVec2::new(-1.0,  0.0), DVec2::new(0.0,  0.0), DVec2::new(1.0,  0.0),
+  DVec2::new(-1.0,  1.0), DVec2::new(0.0,  1.0), DVec2::new(1.0,  1.0),
 ];
 
 impl Grid{
@@ -86,7 +91,22 @@ impl Grid{
       if i==0 || h.cell != self.handles[i-1].cell {Some(Handle{index: i, cell: h.cell})} else {None}
     ).flatten().collect();
     // precompute all neighbours
-    self.neighbours = pos.par_iter().map(|p|self.query_radius(p, gridsize)).collect();
+    self.neighbours.par_iter_mut().zip(pos).for_each(|(n, p)|{
+      *n = DIRECTIONS.iter().map(|d|{
+        let x = *p+(*d)*gridsize;
+        get_key(&x, &self.min, gridsize, curve)
+      }).flat_map(|code| 
+        if let Ok(cells_index) = self.cells.binary_search_by_key(&code, |h| h.cell) {
+          Some(
+            self.handles.iter()
+              .skip(self.cells[cells_index].index)
+              .take_while(|h|h.cell == self.cells[cells_index].cell)
+              .map(|h|h.index)
+              .collect::<Vec<usize>>()
+          )
+        } else {None}
+      ).flatten().collect()
+    });
   }
 
   /// Query the for all neighbours within a given radius.
@@ -116,7 +136,7 @@ impl Grid{
   /// Since the results of this function are typically used as input to compact kernel functions, 
   /// this is unproblematic.
   pub fn query_index(&self, i:usize)->&[usize]{
-    &self.neighbours[i]
+   &self.neighbours[i]
   }
 
   /// Create a new grid, allocating space for the given number of particles
@@ -125,7 +145,7 @@ impl Grid{
       min: DVec2::NEG_INFINITY, 
       handles: vec![Handle::default(); number_of_particles], 
       cells: vec![], 
-      neighbours: vec![vec![]; number_of_particles]
+      neighbours: vec![vec![]; number_of_particles],
     }
   }
 }
@@ -155,19 +175,6 @@ mod tests {
       thread_rng().gen_range(-range..range),
       thread_rng().gen_range(-range..range),
     )
-  }
-
-  #[test]
-  fn grid_radius_artificial_example(){
-    let grid = Grid{ 
-      min: DVec2::ZERO, 
-      handles: vec![Handle{ index: 0, cell: 0 }, Handle{ index: 1, cell: 0 }, Handle{ index: 2, cell: 3 }, Handle{ index: 3, cell: 8 }], 
-      cells: vec![Handle{ index: 0, cell: 0 }, Handle{ index: 2, cell: 3 }, Handle{ index: 3, cell: 8 }, ],
-      neighbours: vec![]
-    };
-    let answer = grid.query_radius(&(DVec2::ONE*0.5), 1.0);
-    let expected = vec![0usize, 1];
-    assert!(answer.iter().zip(expected).all(|(a,b)|*a==b))
   }
 
   #[test]

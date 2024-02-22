@@ -1,7 +1,6 @@
 use crate::{*, sph::{kernel, kernel_derivative}, datastructure::Grid};
-use std::{time::Duration, fmt::Debug};
+use std::fmt::Debug;
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
-use spin_sleep::sleep;
 use atomic_enum::atomic_enum;
 
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -10,6 +9,7 @@ pub fn run(){
   let mut state = Attributes::new();
   let mut grid = Grid::new(state.pos.len());
   grid.update_grid(&state.pos, KERNEL_SUPPORT);
+  // state.resort(&grid);
   let boundary = Boundary::new(3);
   { *BOUNDARY_PARTICLES.write() = boundary.pos.clone(); }
   let mut current_t = 0.0;
@@ -19,14 +19,11 @@ pub fn run(){
   {  HISTORY.write().reset_and_add(&state, &grid, current_t); }
   let mut last_update_time = timestamp();
   while !REQUEST_RESTART.fetch_and(false, Relaxed) {
-    // throttle
-    sleep(Duration::from_micros(SIMULATION_THROTTLE_MICROS.load(Relaxed)));
-
     // update the datastructure and potentially resort particle attributes
-    if since_resort > RESORT_ATTRIBUTES_EVERY_N.load(Relaxed) {
-      state.resort(&grid);
-      since_resort = 0;
-    } else {since_resort += 1;}
+    // if since_resort > RESORT_ATTRIBUTES_EVERY_N.load(Relaxed) {
+    //   state.resort(&grid);
+    //   since_resort = 0;
+    // } else {since_resort += 1;}
     grid.update_grid(&state.pos, KERNEL_SUPPORT);
 
     // perform an update step using the selected fluid solver
@@ -40,7 +37,7 @@ pub fn run(){
 }
 
 
-// SOLVERS AVAILABLE USED ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// SOLVERS AVAILABLE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Perform a simulation update step using the basic SESPH solver
 fn sesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary){
@@ -113,7 +110,7 @@ fn update_dt(vel: &[DVec2], current_t: &mut f64)->f64{
 }
 
 /// Update the FPS counter based on the previous iterations timestamp
-fn update_fps(previous_timestamp: &mut u128){
+pub fn update_fps(previous_timestamp: &mut u128){
   let now = timestamp();
   SIM_FPS.fetch_update(Relaxed, Relaxed, |fps| Some(
     fps*FPS_SMOOTING + 1.0/micros_to_seconds( now - *previous_timestamp) * (1.0-FPS_SMOOTING)
@@ -203,7 +200,7 @@ fn update_pressures(den: &[f64], prs:&mut[f64]){
 /// adding the result to the current accelerations
 fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut[DVec2], grid: &Grid, boundary: &Boundary){
   let rho_0 = RHO_ZERO.load(Relaxed);
-  let one_over_rho_0_squared = 1.0/rho_0*rho_0;
+  let one_over_rho_0_squared = 1.0/(rho_0*rho_0);
   pos.par_iter().enumerate().zip(prs).zip(den).zip(acc)
   .for_each(|((((i, x_i), p_i), rho_i), acc)|{
     let p_i_over_rho_i_squared = p_i/(rho_i*rho_i);
@@ -358,12 +355,12 @@ impl Attributes{
 
   /// Resort all particle attributes according to some given order, which must be
   /// a permutation of (0..NUMBER_OF_PARTICLES). This is meant to eg. improve cache-hit-rates
-  /// by employing the same sorting as the acceleration datastructure for neighbourhood queries.
+  /// by employing the same sorting as the acceleration datastructure provides for neighbourhood queries.
   fn resort(&mut self, grid: &Grid){
     // extract the order of the attributes according to cell-wise z-ordering
     let order:Vec<usize> = grid.handles.par_iter().map(|h|h.index).collect();
     debug_assert!(order.len() == self.pos.len());
-    // re-order relevatn particle attributes in accordance with the order
+    // re-order relevant particle attributes in accordance with the order
     self.pos = order.par_iter().map(|i| self.pos[*i]).collect();
     self.vel = order.par_iter().map(|i| self.vel[*i]).collect();
   }

@@ -6,6 +6,7 @@ edition = "2021"
 [profile.release]
 # lto = "fat"
 panic = "abort"
+opt-level = 3
 
 [dependencies]
 # DRAWING AND GUI
@@ -15,7 +16,7 @@ colorgrad = "0.6.2"
 image = { version = "0.24", default-features = false, features = ["png"] }
 
 # VECTORS AND MATH
-glam = "0.24.2"
+glam = { version = "0.25.0", features = ["fast-math"] }
 approx = "0.5.1"
 rand = "0.8.5"
 lindel = "0.1.1"
@@ -28,6 +29,8 @@ atomic_enum = "0.2.0"
 atomic = "0.6.0"
 mimalloc = { version = "*", default-features = false }
 
-# PARALLELISM, CACHING AND TIMING
+# PARALLELISM
 rayon = "1.8.0"
-spin_sleep = "1.1.1"
+
+# GPU COMPUTING
+ocl = "0.19.6"
