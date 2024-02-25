@@ -108,6 +108,10 @@ impl History{
   }
 
   pub fn gpu_add_step(&mut self, pos:&[Float2], den:&[Float], current_t:f64){
+    self.plot_density.push([current_t, 
+      den.par_iter()
+        .map(|f|f[0])
+        .sum::<f32>() as f64/den.len() as f64]);
     self.steps.push(HistoryTimestep{ 
       pos: pos.par_iter().map(|p| [p[0] as f64, p[1] as f64]).collect(), 
       current_t, 
@@ -253,7 +257,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     let mut lambda:f64 = LAMBDA.load(Relaxed);
     let mut max_dt:f64 = MAX_DT.load(Relaxed);
     let mut init_dt:f64 = INITIAL_DT.load(Relaxed);
-    let mut resort:u32 = RESORT_ATTRIBUTES_EVERY_N.load(Relaxed);
+    let mut resort:u32 = {*RESORT_ATTRIBUTES_EVERY_N.read()};
     let mut curve:GridCurve = GRID_CURVE.load(Relaxed);
     let mut feature:VisualizedFeature = VISUALIZED_FEATURE.load(Relaxed);
     let mut colours:ColourScheme = COLOUR_SCHEME.load(Relaxed);
@@ -439,7 +443,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     SOLVER.store(solver, Relaxed);
     MAX_RHO_DEVIATION.store(max_delta_rho, Relaxed);
     REQUEST_RESTART.store(restart, Relaxed);
-    RESORT_ATTRIBUTES_EVERY_N.store(resort, Relaxed);
+    {*RESORT_ATTRIBUTES_EVERY_N.write() = resort;}
     GRID_CURVE.store(curve, Relaxed);
     VISUALIZED_FEATURE.store(feature, Relaxed);
     COLOUR_SCHEME.store(colours, Relaxed);

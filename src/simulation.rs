@@ -20,10 +20,10 @@ pub fn run(){
   let mut last_update_time = timestamp();
   while !REQUEST_RESTART.fetch_and(false, Relaxed) {
     // update the datastructure and potentially resort particle attributes
-    // if since_resort > RESORT_ATTRIBUTES_EVERY_N.load(Relaxed) {
-    //   state.resort(&grid);
-    //   since_resort = 0;
-    // } else {since_resort += 1;}
+    if since_resort > {*RESORT_ATTRIBUTES_EVERY_N.read()} {
+      state.resort(&grid);
+      since_resort = 0;
+    } else {since_resort += 1;}
     grid.update_grid(&state.pos, KERNEL_SUPPORT);
 
     // perform an update step using the selected fluid solver

@@ -1,4 +1,8 @@
 
+
+
+// ~~~~~~~~~~~~ KERNEL FUNCTIONS ~~~~~~~~~~~~
+
 /// cubic spline kernel function
 float w(float2 x_i, float2 x_j, float alpha, float h){
   float q = distance(x_i,x_j)/h;
@@ -16,6 +20,8 @@ float2 dw(float2 x_i, float2 x_j, float alpha, float h){
 }
 
 
+// ~~~~~~~~~~~~ SPH APPROXIMATIONS ~~~~~~~~~~~~
+
 __kernel void eulercromerstep(
   // arrays
   __global float2* pos, 
@@ -25,25 +31,25 @@ __kernel void eulercromerstep(
   float dt
 ){
   int i = get_global_id(0);
-  float2 new_v = vel[i] + acc[i]*dt;
-  vel[i] = new_v;
-  pos[i] += new_v*dt;
+  // float2 new_v = vel[i] + acc[i]*dt;
+  vel[i] += acc[i]*dt;
+  pos[i] += vel[i]*dt;
 }
 
 __kernel void enforce_boundary(
   // arrays
   __global float2* pos, 
+  __global float2* vel, 
+  __global float2* acc, 
   // constants
   float2 min, 
   float2 max
 ) {
   int i = get_global_id(0);
-  float2 p = pos[i];
-  p.x = p.x>min.x ? p.x : min.x;
-  p.y = p.y>min.y ? p.y : min.y;
-  p.x = p.x<max.x ? p.x : max.x;
-  p.y = p.y<max.y ? p.y : max.y;
-  pos[i] = p;
+  if(pos[i].x<=min.x){pos[i].x=min.x; acc[i].x=0.0; vel[i].x=0.0;}
+  if(pos[i].y<=min.y){pos[i].y=min.y; acc[i].y=0.0; vel[i].y=0.0;}
+  if(pos[i].x>=max.x){pos[i].x=max.x; acc[i].x=0.0; vel[i].x=0.0;}
+  if(pos[i].y>=max.y){pos[i].y=max.y; acc[i].y=0.0; vel[i].y=0.0;}
 }
 
 /// n is the number of particles
@@ -119,8 +125,8 @@ __kernel void apply_gravity_viscosity(
       int initial_cell = cells[j];
       while (j<n && cells[j]<initial_cell+3){
         float2 x_i_j = x_i-pos[indices[j]];
-        float squared_dist = length(x_i_j)*length(x_i_j);
         float2 v_i_j = v_i-vel[indices[j]];
+        float squared_dist = length(x_i_j)*length(x_i_j);
         vis += (mass/den[indices[j]]) * 
           (dot(v_i_j, x_i_j)/(squared_dist + 0.01f*h*h)) * 
           dw(x_i, pos[indices[j]], alpha, h);
@@ -169,4 +175,85 @@ __kernel void add_pressure_acceleration(
   }
 
   acc[i] += force*mass;
+}
+
+// ~~~~~~~~~~~~ NEIGHBOURHOOD SEARCH ~~~~~~~~~~~~
+
+ulong cell_key(float2 p, float ks, float2 min){
+  uint2 key = convert_uint2_rtn((p-min)/ks);
+  return ((ulong)key.y)<<16 | key.x;
+}
+
+__kernel void compute_cell_keys(
+  // atomics
+  float kernel_support,
+  float2 min_extent,
+  // arrays
+  __global float2* pos, 
+  __global uint* cells
+){
+  int i = get_global_id(0);
+  cells[i] = cell_key(pos[i], kernel_support, min_extent);
+}
+
+
+__kernel void compute_neighbours(
+  // atomics
+  float2 min_extent,
+  // arrays
+  __global float2* pos, 
+  __global uint* cells,
+  __global uint* indices,
+  __global int* neighbours,
+  // constants 
+  float ks,
+  uint n
+){
+  int i = get_global_id(0);
+  float2 rows_nearby[3] = {
+    (float2)(-ks, -ks),
+    (float2)(-ks, 0),
+    (float2)(-ks, ks),
+  };
+  for (int k=0; k<3; k++){
+    ulong key = cell_key(pos[i]+rows_nearby[k],ks,min_extent);
+    // binary search for key
+    int result = -1;
+    int low = 0;
+    int high = n-1;
+    while(low<=high){
+      int mid = (high-low)/2+low;
+      ulong hit = cells[mid];
+      if(
+        (key<=hit && hit<key+3) && 
+        (
+          mid == 0 || 
+          !(key<=cells[mid-1] && cells[mid-1]<key+3)
+        )
+      ){
+        result = mid;
+        break;
+      } else {
+        if(hit < key){
+          low=mid+1;
+        } else {
+          high = mid-1;
+        }
+      }
+    }
+    // update neighbour set 
+    neighbours[i*3+k] = result;
+  }
+}
+
+// ~~~~~~~~~~~~ SORTING ALGORITHM ~~~~~~~~~~~~
+
+__kernel void sort_handles(
+  // arrays
+  __global uint* cells,
+  __global uint* indices,
+  // constants 
+  uint n
+){
+
 }

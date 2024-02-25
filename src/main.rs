@@ -19,7 +19,11 @@ use gui::StokedWindowHandler;
 mod simulation;
 mod sph;
 mod datastructure;
-mod gpu;
+mod gpu_version{
+  pub mod gpu;
+  pub mod buffers;
+  pub mod kernels;
+}
 use crate::gui::History;
 
 // switch default allocator
@@ -41,16 +45,16 @@ lazy_static! {
   static ref BOUNDARY_PARTICLES:Arc<RwLock<Vec<DVec2>>> = Arc::new(RwLock::new(vec![]));
   pub static ref HISTORY:Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
   pub static ref SOLVER:AtomicSolver = AtomicSolver::new(simulation::Solver::SESPH);
+  pub static ref RESORT_ATTRIBUTES_EVERY_N:Arc<RwLock<u32>> = Arc::new(RwLock::new(64));
 }
 
 // datastructure settings
-static RESORT_ATTRIBUTES_EVERY_N:AtomicU32 = AtomicU32::new(64);
 static GRID_CURVE:AtomicGridCurve = AtomicGridCurve::new(GridCurve::Morton);
 
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-const H:f64 = 0.1;
+const H:f64 = 0.05;
 // -> Consequence of kernel support radius 2H:
 const KERNEL_SUPPORT:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
@@ -86,6 +90,9 @@ fn main() {
     ).with_maximized(true)
   ).unwrap();
 
-  thread::spawn(||{loop {gpu::run()}});
+  thread::spawn(||{
+    loop {gpu_version::gpu::run()}
+    // loop{simulation::run()}
+  });
   window.run_loop(egui_speedy2d::WindowWrapper::new(StokedWindowHandler{}));
 }
