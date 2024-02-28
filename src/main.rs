@@ -54,7 +54,7 @@ static GRID_CURVE:AtomicGridCurve = AtomicGridCurve::new(GridCurve::Morton);
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-const H:f64 = 0.05;
+const H:f64 = 0.04;
 // -> Consequence of kernel support radius 2H:
 const KERNEL_SUPPORT:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
