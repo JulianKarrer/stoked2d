@@ -15,6 +15,9 @@ pub struct Kernels{
 }
 
 impl Kernels{
+  /// Initialize a new set of kernel functions, compiling all
+  /// relevant programs and setting their parameters using constants,
+  /// atomics and the corresponsing buffers in a `GpuBuffer`.
   pub fn new(b: &GpuBuffers, pro_que:ProQue, n:u32, dt:f32)->Self{
     let euler_cromer_kernel = pro_que.kernel_builder("eulercromerstep")
     .arg(&b.pos)
@@ -91,4 +94,15 @@ impl Kernels{
       compute_neighbours_kernel 
     }
   }
+
+  /// Update kernel arguments that are adjusted in the gui
+  /// thorugh the use of atomics.
+  pub fn update_atomics(&self){
+    self.densitiy_pressure_kernel.set_arg(0, K.load(Relaxed) as f32).unwrap();
+    self.densitiy_pressure_kernel.set_arg(1, RHO_ZERO.load(Relaxed) as f32).unwrap();
+    self.gravity_viscosity_kernel.set_arg(0, NU.load(Relaxed) as f32).unwrap();
+    self.gravity_viscosity_kernel.set_arg(1, GRAVITY.load(Relaxed) as f32).unwrap();
+    self.pressure_acceleration_kernel.set_arg(0, RHO_ZERO.load(Relaxed) as f32).unwrap();
+  }
+
 }

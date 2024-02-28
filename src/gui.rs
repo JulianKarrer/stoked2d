@@ -32,11 +32,13 @@ lazy_static! {
   static ref DRAG_LAST:Arc<RwLock<Option<speedy2d::dimen::Vec2>>> = Arc::new(RwLock::new(None));
   static ref LAST_FRAME_TIME:Atomic<u128> = Atomic::new(0);
   static ref PLAY_STATE:Arc<RwLock<PlaybackState>> = Arc::new(RwLock::new(PlaybackState::CaughtUp));
+  pub static ref SIMULATION_TOGGLE:Arc<RwLock<bool>> = Arc::new(RwLock::new(true));
   // image data for png icons:
   static ref IMAGE_PLAY:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
   static ref IMAGE_PAUSE:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
   static ref IMAGE_FORWARD:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
   static ref IMAGE_REPLAY:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
+  static ref IMAGE_TOGGLE:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
 }
 
 /// Stores the playback state of the GUI
@@ -71,7 +73,7 @@ pub struct HistoryTimestep{
   pub pos: Vec<[f64; 2]>,
   pub current_t: f64,
   pub densities: Vec<f64>,
-  pub grid_handle_index: Vec<usize>
+  pub grid_handle_index: Vec<u32>
 }
 
 pub struct History{
@@ -102,12 +104,12 @@ impl History{
     self.plot_density.shrink_to_fit();
   }
 
-  pub fn gpu_reset_and_add(&mut self, pos:&[Float2], den:&[Float], current_t:f64){
+  pub fn gpu_reset_and_add(&mut self, pos:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64){
     self.reset();
-    self.gpu_add_step(pos, den, current_t);
+    self.gpu_add_step(pos, handle_indices, den, current_t);
   }
 
-  pub fn gpu_add_step(&mut self, pos:&[Float2], den:&[Float], current_t:f64){
+  pub fn gpu_add_step(&mut self, pos:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64){
     self.plot_density.push([current_t, 
       den.par_iter()
         .map(|f|f[0])
@@ -116,7 +118,7 @@ impl History{
       pos: pos.par_iter().map(|p| [p[0] as f64, p[1] as f64]).collect(), 
       current_t, 
       densities: den.par_iter().map(|d| d[0] as f64).collect(), 
-      grid_handle_index: vec![0; pos.len()],
+      grid_handle_index: handle_indices.to_vec(),
     })
   }
 
@@ -128,7 +130,7 @@ impl History{
       pos: state.pos.par_iter().map(|p|p.to_array()).collect(), 
       current_t, 
       densities, 
-      grid_handle_index: grid.handles.par_iter().map(|x| x.index ).collect(),
+      grid_handle_index: grid.handles.par_iter().map(|x| x.index as u32).collect(),
     })
   }
 }
@@ -370,9 +372,16 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         let (pause, _) = get_image(IMAGE_PAUSE.as_ref(), "./assets/pause.png", "play", ui);
         let (forward, _) = get_image(IMAGE_FORWARD.as_ref(), "./assets/forward.png", "play", ui);
         let (replay, _) = get_image(IMAGE_REPLAY.as_ref(), "./assets/replay.png", "play", ui);
+        let (toggle, _) = get_image(IMAGE_TOGGLE.as_ref(), "./assets/toggle.png", "play", ui);
+        if ui.add(ImageButton::new(toggle, ICON_SIZE))
+          .on_hover_text("Toggle Simulation computing in the background")
+          .clicked(){
+          let state: bool= !{*SIMULATION_TOGGLE.read()};
+          *SIMULATION_TOGGLE.write() = state;
+        }
         let mut playstate = PLAY_STATE.write();
         if ui.add(ImageButton::new(replay, ICON_SIZE))
-          .on_hover_text("Restart")
+          .on_hover_text("Restart Simulation")
           .clicked() {
           *playstate = PlaybackState::CaughtUp;
           restart = true;
@@ -383,7 +392,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
             PlaybackState::Paused(..) => play,
             PlaybackState::CaughtUp => play,
           }, ICON_SIZE))
-          .on_hover_text("Play in real time")
+          .on_hover_text("Start playback in real time")
           .clicked(){
           match *playstate{
             PlaybackState::Playing(_) => *playstate = PlaybackState::Paused(current_playback_t, current_step),
@@ -394,7 +403,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
           };
         }
         if ui.add(ImageButton::new(forward, ICON_SIZE))
-          .on_hover_text("Skip to present")
+          .on_hover_text("Skip playback to present")
           .clicked(){
           *playstate = PlaybackState::CaughtUp
         }

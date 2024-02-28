@@ -1,7 +1,7 @@
 use ocl::{prm::{Float, Float2}, Buffer, MemFlags, ProQue};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
-use crate::RESORT_ATTRIBUTES_EVERY_N;
+use crate::{FLUID, H, RESORT_ATTRIBUTES_EVERY_N};
 
 
 pub struct GpuBuffers{
@@ -48,7 +48,7 @@ impl GpuBuffers{
   /// Load positions from the buffer to host memory and resort positions and
   /// velocities every n iterations to ensure memory coherency, updating
   /// the device side buffers
-  pub fn resort_pos_vel(&mut self, since_resort: &mut u32, pos: &mut [Float2], vel: &mut [Float2]){
+  pub fn load_and_resort_pos_vel(&mut self, since_resort: &mut u32, pos: &mut [Float2], vel: &mut [Float2]){
     if *since_resort > {*RESORT_ATTRIBUTES_EVERY_N.read()} {
       self.pos.read(&mut self.pos_resort).enq().unwrap();
       self.vel.read(&mut self.vel_resort).enq().unwrap();
@@ -68,5 +68,31 @@ impl GpuBuffers{
       self.pos.read(&mut *pos).enq().unwrap();
       *since_resort += 1;
     }
+  }
+
+  pub fn init_fluid_pos_vel(&self, pos: &mut Vec<Float2>, vel: &mut Vec<Float2>, n:usize){
+    let mut acc:Vec<Float2> = Vec::with_capacity(n); 
+    // initialization
+    let mut x = FLUID[0].x as f32;
+    let mut y = FLUID[0].y as f32;
+    while x <= FLUID[1].x as f32{
+      while y <= FLUID[1].y as f32{
+        pos.push(Float2::new(x, y));
+        vel.push(Float2::new(0.0, 0.0));
+        acc.push(Float2::new(0.0, -9.81));
+        y += H as f32;
+      }
+      y = FLUID[0].y as f32;
+      x += H as f32;
+    }
+    assert!(
+      pos.len() <= n, 
+      "n={} must be >= to pos.len()={} for gpu buffer dimensions to match", 
+      n, pos.len()
+    );
+    // fill buffers with values
+    self.pos.write(&*pos).enq().unwrap();
+    self.vel.write(&*vel).enq().unwrap();
+    self.acc.write(&acc).enq().unwrap();
   }
 }

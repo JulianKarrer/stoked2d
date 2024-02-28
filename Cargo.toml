@@ -2,6 +2,7 @@
 name = "stoked2d"
 version = "0.1.0"
 edition = "2021"
+description = "2D Lagragian fluid simulation using SPH discretization"
 
 [profile.release]
 # lto = "fat"

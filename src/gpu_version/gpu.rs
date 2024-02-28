@@ -1,14 +1,16 @@
 extern crate ocl;
 
+use std::time::Duration;
+
 use ocl::{prm::{Float, Float2}, ProQue};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 use voracious_radix_sort::RadixSort;
-use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, simulation::update_fps, *};
+use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::SIMULATION_TOGGLE, simulation::update_fps, *};
 
 use self::datastructure::Handle;
 
 pub fn run(){
-  // init
+  // upper bound on the number of particles before initialization
   let n: usize = ((FLUID[1].x-FLUID[0].x)/(H) + 1.0).ceil() as usize * ((FLUID[1].y-FLUID[0].y)/(H) + 1.0).ceil() as usize;
 
   let pro_que: ProQue = ProQue::builder()
@@ -17,39 +19,16 @@ pub fn run(){
     .build().unwrap();
   println!("Number of particles: {}",n);
 
-  // allocation
+  // buffer allocation and initialization
   let mut b: GpuBuffers = GpuBuffers::new(&pro_que, n);
   let mut pos:Vec<Float2> = Vec::with_capacity(n); 
   let mut vel:Vec<Float2> = Vec::with_capacity(n); 
-  {
-    let mut acc:Vec<Float2> = Vec::with_capacity(n); 
-    // initialization
-    let mut x = FLUID[0].x as f32;
-    let mut y = FLUID[0].y as f32;
-    while x <= FLUID[1].x as f32{
-      while y <= FLUID[1].y as f32{
-        pos.push(Float2::new(x, y));
-        vel.push(Float2::new(0.0, 0.0));
-        acc.push(Float2::new(0.0, -9.81));
-        y += H as f32;
-      }
-      y = FLUID[0].y as f32;
-      x += H as f32;
-    }
-    assert!(
-      pos.len() <= n, 
-      "n={} must be >= to pos.len()={} for gpu buffer dimensions to match", 
-      n, pos.len()
-    );
-    // fill buffers with values
-    b.pos.write(&pos).enq().unwrap();
-    b.vel.write(&vel).enq().unwrap();
-    b.acc.write(&acc).enq().unwrap();
-  }
+  b.init_fluid_pos_vel(&mut pos, &mut vel, n);
   let mut den: Vec<Float> = vec![Float::new((M/(H*H)) as f32);pos.len()];
   let mut handles:Vec<Handle> = (0..pos.len()).map(|i| Handle::new(i, 0)).collect();
   let mut handle_cells:Vec<u32> = Vec::with_capacity(pos.len());
   let mut handle_indices: Vec<u32> = vec![0u32; pos.len()];
+
   // define time step size
   let mut current_t = 0.0f32;
   let mut dt = INITIAL_DT.load(Relaxed) as f32;
@@ -57,33 +36,22 @@ pub fn run(){
   // build relevant kernels
   let k = Kernels::new(&b, pro_que, pos.len() as u32, dt);
   
-  // MAIN LOOP
+  // MAIN LOOPddddsdfsdsADFASDFASDFASDF
   let mut last_update_time = timestamp();
   let mut since_resort = 0;
-  {  HISTORY.write().gpu_reset_and_add(&pos, &den, current_t.into()); }
+  {  HISTORY.write().gpu_reset_and_add(&pos, &handle_indices, &den, current_t.into()); }
   while !REQUEST_RESTART.fetch_and(false, Relaxed) {
+    // wait if requested
+    while *SIMULATION_TOGGLE.read() { thread::sleep(Duration::from_millis(100)); }
     // update atomics to kernel programs
-    k.densitiy_pressure_kernel.set_arg(0, K.load(Relaxed) as f32).unwrap();
-    k.densitiy_pressure_kernel.set_arg(1, RHO_ZERO.load(Relaxed) as f32).unwrap();
-    k.gravity_viscosity_kernel.set_arg(0, NU.load(Relaxed) as f32).unwrap();
-    k.gravity_viscosity_kernel.set_arg(1, GRAVITY.load(Relaxed) as f32).unwrap();
-    k.pressure_acceleration_kernel.set_arg(0, RHO_ZERO.load(Relaxed) as f32).unwrap();
+    k.update_atomics();
 
-    // update grid
-      // copy pos to host for cpu side computations
+    // copy pos to host for cpu side computations
       // potentially resort particle data to restore spatial locality
-    b.resort_pos_vel(&mut since_resort, &mut pos, &mut vel);
-      // perform cpu side computations
-    let min = update_cell_keys(&pos, &mut handles);
-    handles.voracious_mt_sort(*THREADS);
-      // transfer sorted handles back to gpu and create neighbour lists
-    k.compute_neighbours_kernel.set_arg(0, min).unwrap();
-    handles.par_iter().map(|h|h.cell as u32).collect_into_vec(&mut handle_cells);
-    handles.par_iter().map(|h|h.index as u32).collect_into_vec(&mut handle_indices);
-    b.handle_cells.write(&handle_cells).enq().unwrap();
-    b.handle_indices.write(&handle_indices).enq().unwrap();
-    unsafe { k.compute_neighbours_kernel.enq().unwrap(); }
-
+    b.load_and_resort_pos_vel(&mut since_resort, &mut pos, &mut vel);
+    // update grid
+    update_grid(&k, &b, &mut handles, &mut handle_indices, &mut handle_cells, &pos);
+    
     // update densities and pressures
     unsafe { k.densitiy_pressure_kernel.enq().unwrap(); }
     // apply gravity and viscosity
@@ -101,7 +69,7 @@ pub fn run(){
     // write back the positions to the global buffer for visualization and update the FPS count
     update_fps(&mut last_update_time);
     b.den.read(&mut den).enq().unwrap();
-    {  HISTORY.write().gpu_add_step(&pos, &den, current_t.into()); }
+    {  HISTORY.write().gpu_add_step(&pos, &handle_indices, &den, current_t.into()); }
   }
 }
 
@@ -129,6 +97,8 @@ fn len_float2(x:&Float2)->f64{
   ((xc*xc)+(yc*yc)).sqrt()
 }
 
+/// Update the current time step size in accordance with the CFL condition,
+/// respecting the atomics for initial and maximum time step sizes and accumulate into the current total time `current_t`
 fn update_dt_gpu(vel: &[Float2], current_t: &mut f32)->f32{
   let v_max = vel.par_iter().map(len_float2).reduce_with(|a,b| a.max(b)).unwrap();
   let mut dt = ((LAMBDA.load(Relaxed) * H / v_max)
@@ -136,6 +106,26 @@ fn update_dt_gpu(vel: &[Float2], current_t: &mut f32)->f32{
   if v_max < VELOCITY_EPSILON || !dt.is_normal() {dt = INITIAL_DT.load(Relaxed) as f32}
   *current_t += dt;
   dt
+}
+
+/// Update the uniform grid.
+/// - Find the point of minimum extent
+/// - Compute cell keys for each Particle
+/// - Sort the array of handles on the CPU
+/// - transfer back the sorted cell- and index- lists to GPU
+/// - compute neighbour sets from the sorted array on the GPU
+fn update_grid(k: &Kernels, b:&GpuBuffers, handles:&mut [Handle], handle_indices: &mut Vec<u32>, handle_cells: &mut Vec<u32>, pos: &[Float2]){
+      // perform cpu side computations
+    let min = update_cell_keys(pos, handles);
+    handles.voracious_mt_sort(*THREADS);
+      // transfer sorted handles back to gpu and create neighbour lists
+    k.compute_neighbours_kernel.set_arg(0, min).unwrap();
+    handles.par_iter().map(|h|h.cell as u32).collect_into_vec(handle_cells);
+    handles.par_iter().map(|h|h.index as u32).collect_into_vec(handle_indices);
+    b.handle_cells.write(&*handle_cells).enq().unwrap();
+    b.handle_indices.write(&*handle_indices).enq().unwrap();
+      // compute neighbour sets on the GPU 
+    unsafe { k.compute_neighbours_kernel.enq().unwrap(); }
 }
 
 
