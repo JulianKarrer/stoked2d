@@ -48,7 +48,6 @@ mod tests {
   const TEST_RUNS_ACCEPTED_REL_ERROR:f64 = 0.01;
   const IDEAL_SAMPLING_ACCEPTED_ERROR:f64 = 0.01;
   const F64_EPSILON:f64 = f64::EPSILON*64.0;
-  
   fn get_ideal_sampled_pos_around_origin()->Vec<DVec2>{
     let mut pos = vec![];
     let (mut x, mut y) = (-3.0*H, -3.0*H);

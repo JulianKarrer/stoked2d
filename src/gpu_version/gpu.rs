@@ -2,12 +2,28 @@ extern crate ocl;
 
 use std::time::Duration;
 
-use ocl::{prm::{Float, Float2}, ProQue};
+use ocl::{prm::{Float, Float2, Uint2}, ProQue};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
-use voracious_radix_sort::RadixSort;
+use voracious_radix_sort::{RadixSort, Radixable};
 use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::SIMULATION_TOGGLE, simulation::update_fps, *};
 
-use self::datastructure::Handle;
+#[derive(Copy, Clone, Debug, Default)]
+struct GpuHandle(Uint2);
+impl GpuHandle {
+  fn new(cell: u32, key:u32)->Self{Self(Uint2::new(cell, key))}
+  fn cell(&self)->u32{self.0[0]}
+  fn set_cell(&mut self, cell:u32){self.0[0] = cell}
+  fn index(&self)->u32{self.0[1]}
+}
+impl PartialOrd for GpuHandle{
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {self.cell().partial_cmp(&other.cell())}
+}
+impl PartialEq for GpuHandle{
+  fn eq(&self, other: &Self) -> bool {self.cell() == other.cell() }
+}
+impl Radixable<u32> for GpuHandle{
+  type Key = u32; fn key(&self) -> Self::Key {self.cell()}
+}
 
 pub fn run(){
   // upper bound on the number of particles before initialization
@@ -18,16 +34,15 @@ pub fn run(){
     .dims(n)
     .build().unwrap();
   println!("Number of particles: {}",n);
-
+  
   // buffer allocation and initialization
   let mut b: GpuBuffers = GpuBuffers::new(&pro_que, n);
   let mut pos:Vec<Float2> = Vec::with_capacity(n); 
   let mut vel:Vec<Float2> = Vec::with_capacity(n); 
   b.init_fluid_pos_vel(&mut pos, &mut vel, n);
   let mut den: Vec<Float> = vec![Float::new((M/(H*H)) as f32);pos.len()];
-  let mut handles:Vec<Handle> = (0..pos.len()).map(|i| Handle::new(i, 0)).collect();
-  let mut handle_cells:Vec<u32> = Vec::with_capacity(pos.len());
-  let mut handle_indices: Vec<u32> = vec![0u32; pos.len()];
+  let mut handles:Vec<GpuHandle> = (0..pos.len()).map(|i| GpuHandle::new(i as u32, 0)).collect();
+  let mut handles_cpu:Vec<Uint2> = vec![Uint2::new(0,0); pos.len()];
 
   // define time step size
   let mut current_t = 0.0f32;
@@ -39,7 +54,7 @@ pub fn run(){
   // MAIN LOOPddddsdfsdsADFASDFASDFASDF
   let mut last_update_time = timestamp();
   let mut since_resort = 0;
-  {  HISTORY.write().gpu_reset_and_add(&pos, &handle_indices, &den, current_t.into()); }
+  {  HISTORY.write().gpu_reset_and_add(&pos, &handles.par_iter().map(|h|h.0[1]).collect::<Vec<u32>>(), &den, current_t.into()); }
   while !REQUEST_RESTART.fetch_and(false, Relaxed) {
     // wait if requested
     while *SIMULATION_TOGGLE.read() { thread::sleep(Duration::from_millis(100)); }
@@ -50,7 +65,9 @@ pub fn run(){
       // potentially resort particle data to restore spatial locality
     b.load_and_resort_pos_vel(&mut since_resort, &mut pos, &mut vel);
     // update grid
-    update_grid(&k, &b, &mut handles, &mut handle_indices, &mut handle_cells, &pos);
+    // println!("before {} {}", pos[0], pos[30000]);
+    update_grid(&k, &b, &mut handles, &mut handles_cpu, &pos);
+    // println!("after {} {}", pos[0], pos[30000]);
     
     // update densities and pressures
     unsafe { k.densitiy_pressure_kernel.enq().unwrap(); }
@@ -69,26 +86,28 @@ pub fn run(){
     // write back the positions to the global buffer for visualization and update the FPS count
     update_fps(&mut last_update_time);
     b.den.read(&mut den).enq().unwrap();
-    {  HISTORY.write().gpu_add_step(&pos, &handle_indices, &den, current_t.into()); }
+    {  HISTORY.write().gpu_add_step(&pos, 
+      &(handles.par_iter().map(|h|h.0[1]).collect::<Vec<u32>>()), 
+      &den, current_t.into()); }
   }
 }
 
 /// Update all cell indices in the array of handles. Returns the minimum point from which the 
 /// space filling XY-curve starts.
-fn update_cell_keys(pos:&[Float2], handles:&mut [Handle])->Float2{
+fn update_cell_keys(pos:&[Float2], handles:&mut [GpuHandle])->Float2{
   let min: Float2 = pos.par_iter().cloned().reduce(
     || Float2::new(f32::MAX, f32::MAX), 
     |a,b|Float2::new(a[0].min(b[0]), a[1].min(b[1]))) 
     - Float2::new(2.0* KERNEL_SUPPORT as f32, 2.0*KERNEL_SUPPORT as f32);
-  handles.par_iter_mut().for_each(|c| c.cell = cell_key(&pos[c.index], &min));
+  handles.par_iter_mut().for_each(|c| c.set_cell(cell_key(&pos[c.index() as usize], &min)));
   min
 }
 
 /// Calculate cell index from position and minimum point of the domain extent
-fn cell_key(pos:&Float2, min:&Float2) -> u64{ 
-  let x: u32 = ((pos[0]-min[0])/KERNEL_SUPPORT as f32).floor() as u32;
-  let y: u32 = ((pos[1]-min[1])/KERNEL_SUPPORT as f32).floor() as u32;
-  ((y as u64) << 16) | x as u64
+fn cell_key(pos:&Float2, min:&Float2) -> u32{ 
+  let x: u16 = ((pos[0]-min[0])/KERNEL_SUPPORT as f32).floor() as u16;
+  let y: u16 = ((pos[1]-min[1])/KERNEL_SUPPORT as f32).floor() as u16;
+  ((y as u32) << 16) + (x as u32)
 }
 
 fn len_float2(x:&Float2)->f64{
@@ -114,18 +133,17 @@ fn update_dt_gpu(vel: &[Float2], current_t: &mut f32)->f32{
 /// - Sort the array of handles on the CPU
 /// - transfer back the sorted cell- and index- lists to GPU
 /// - compute neighbour sets from the sorted array on the GPU
-fn update_grid(k: &Kernels, b:&GpuBuffers, handles:&mut [Handle], handle_indices: &mut Vec<u32>, handle_cells: &mut Vec<u32>, pos: &[Float2]){
-      // perform cpu side computations
-    let min = update_cell_keys(pos, handles);
-    handles.voracious_mt_sort(*THREADS);
-      // transfer sorted handles back to gpu and create neighbour lists
-    k.compute_neighbours_kernel.set_arg(0, min).unwrap();
-    handles.par_iter().map(|h|h.cell as u32).collect_into_vec(handle_cells);
-    handles.par_iter().map(|h|h.index as u32).collect_into_vec(handle_indices);
-    b.handle_cells.write(&*handle_cells).enq().unwrap();
-    b.handle_indices.write(&*handle_indices).enq().unwrap();
-      // compute neighbour sets on the GPU 
-    unsafe { k.compute_neighbours_kernel.enq().unwrap(); }
+fn update_grid(k: &Kernels, b:&GpuBuffers, handles:&mut [GpuHandle], handles_cpu: &mut Vec<Uint2>,pos: &[Float2]){
+    // perform cpu side computations
+  let min = update_cell_keys(pos, handles);
+  k.compute_neighbours_kernel.set_arg(0, min).unwrap();
+
+  handles.voracious_mt_sort(*THREADS);
+    // transfer sorted handles back to gpu and create neighbour lists
+  handles.par_iter().map(|h|h.0).collect_into_vec(handles_cpu);
+  b.handles.write(&*handles_cpu).enq().unwrap();
+    // compute neighbour sets on the GPU 
+  unsafe { k.compute_neighbours_kernel.enq().unwrap(); }
 }
 
 

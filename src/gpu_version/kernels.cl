@@ -64,8 +64,7 @@ __kernel void update_densities_pressures(
   __global float* den,
   __global float* prs,
   __global float2* pos, 
-  __global uint* cells,
-  __global uint* indices,
+  __global uint2* handles,
   __global int* neighbours,
   // constants
   float mass,
@@ -81,9 +80,9 @@ __kernel void update_densities_pressures(
   for (int k=0; k<3; k++){
     int j=neighbours[3*i+k]; // j is an index into `handles`
     if (j>=0){
-      int initial_cell = cells[j];
-      while (j<n && cells[j]<initial_cell+3){
-        new_den += w(p, pos[indices[j]], alpha, h);
+      int initial_cell = handles[j][0];
+      while (j<n && handles[j][0]<initial_cell+3){
+        new_den += w(p, pos[handles[j][1]], alpha, h);
         j++;
       }
     }
@@ -103,8 +102,7 @@ __kernel void apply_gravity_viscosity(
   __global float2* vel,
   __global float2* pos,
   __global float* den,
-  __global uint* cells,
-  __global uint* indices,
+  __global uint2* handles,
   __global int* neighbours,
   // constants
   float mass,
@@ -122,14 +120,14 @@ __kernel void apply_gravity_viscosity(
   for (int k=0; k<3; k++){
     int j=neighbours[3*i+k]; // j is an index into `handles`
     if (j>=0){
-      int initial_cell = cells[j];
-      while (j<n && cells[j]<initial_cell+3){
-        float2 x_i_j = x_i-pos[indices[j]];
-        float2 v_i_j = v_i-vel[indices[j]];
+      int initial_cell = handles[j][0];
+      while (j<n && handles[j][0]<initial_cell+3){
+        float2 x_i_j = x_i-pos[handles[j][1]];
+        float2 v_i_j = v_i-vel[handles[j][1]];
         float squared_dist = length(x_i_j)*length(x_i_j);
-        vis += (mass/den[indices[j]]) * 
+        vis += (mass/den[handles[j][1]]) * 
           (dot(v_i_j, x_i_j)/(squared_dist + 0.01f*h*h)) * 
-          dw(x_i, pos[indices[j]], alpha, h);
+          dw(x_i, pos[handles[j][1]], alpha, h);
         j++;
       }
     }
@@ -146,8 +144,7 @@ __kernel void add_pressure_acceleration(
   __global float2* acc, 
   __global float* den,
   __global float* prs,
-  __global uint* cells,
-  __global uint* indices,
+  __global uint2* handles,
   __global int* neighbours,
   // constants
   float mass,
@@ -164,11 +161,11 @@ __kernel void add_pressure_acceleration(
   for (int k=0; k<3; k++){
     int j=neighbours[3*i+k]; // j is an index into `handles`
     if (j>=0){
-      int initial_cell = cells[j];
-      while (j<n && cells[j]<initial_cell+3){
+      int initial_cell = handles[j][0];
+      while (j<n && (handles[j][0])<initial_cell+3){
         // symmetric formula for pressure forces
-        force -= dw(x_i, pos[indices[j]], alpha, h) * 
-          (p_i_over_rho_i_squared + prs[indices[j]]/(den[indices[j]]*den[indices[j]]));
+        force -= dw(x_i, pos[handles[j][1]], alpha, h) * 
+          (p_i_over_rho_i_squared + prs[handles[j][1]]/(den[handles[j][1]]*den[handles[j][1]]));
         j++;
       }
     }
@@ -179,31 +176,17 @@ __kernel void add_pressure_acceleration(
 
 // ~~~~~~~~~~~~ NEIGHBOURHOOD SEARCH ~~~~~~~~~~~~
 
-ulong cell_key(float2 p, float ks, float2 min){
-  uint2 key = convert_uint2_rtn((p-min)/ks);
-  return ((ulong)key.y)<<16 | key.x;
+uint cell_key(float2 p, float ks, float2 min){
+  ushort2 key = convert_ushort2_rtn((p-min)/ks);
+  return ((uint)key.y)<<16 + ((uint)key.x);
 }
-
-__kernel void compute_cell_keys(
-  // atomics
-  float kernel_support,
-  float2 min_extent,
-  // arrays
-  __global float2* pos, 
-  __global uint* cells
-){
-  int i = get_global_id(0);
-  cells[i] = cell_key(pos[i], kernel_support, min_extent);
-}
-
 
 __kernel void compute_neighbours(
   // atomics
   float2 min_extent,
   // arrays
   __global float2* pos, 
-  __global uint* cells,
-  __global uint* indices,
+  __global uint2* handles,
   __global int* neighbours,
   // constants 
   float ks,
@@ -216,19 +199,19 @@ __kernel void compute_neighbours(
     (float2)(-ks, ks),
   };
   for (int k=0; k<3; k++){
-    ulong key = cell_key(pos[i]+rows_nearby[k],ks,min_extent);
+    uint key = cell_key(pos[i]+rows_nearby[k],ks,min_extent);
     // binary search for key
     int result = -1;
     int low = 0;
     int high = n-1;
     while(low<=high){
       int mid = (high-low)/2+low;
-      ulong hit = cells[mid];
+      uint hit = handles[mid][0];
       if(
         (key<=hit && hit<key+3) && 
         (
           mid == 0 || 
-          !(key<=cells[mid-1] && cells[mid-1]<key+3)
+          !(key<=(handles[mid-1][0]) && (handles[mid-1][0])<key+3)
         )
       ){
         result = mid;
@@ -248,12 +231,25 @@ __kernel void compute_neighbours(
 
 // ~~~~~~~~~~~~ SORTING ALGORITHM ~~~~~~~~~~~~
 
+__kernel void compute_cell_keys(
+  // atomics
+  float kernel_support,
+  float2 min_extent,
+  // arrays
+  __global float2* pos, 
+  __global uint* cells
+){
+  int i = get_global_id(0);
+  cells[i] = cell_key(pos[i], kernel_support, min_extent);
+}
+
 __kernel void sort_handles(
   // arrays
-  __global uint* cells,
-  __global uint* indices,
+  __global uint2* handles,
+  // arguments
+  uint current_iter,
   // constants 
   uint n
 ){
-
+  
 }

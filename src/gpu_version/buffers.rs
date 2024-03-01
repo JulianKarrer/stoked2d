@@ -1,4 +1,4 @@
-use ocl::{prm::{Float, Float2}, Buffer, MemFlags, ProQue};
+use ocl::{prm::{Float, Float2, Uint2}, Buffer, MemFlags, ProQue};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{FLUID, H, RESORT_ATTRIBUTES_EVERY_N};
@@ -10,12 +10,11 @@ pub struct GpuBuffers{
   pub acc: Buffer<Float2>,
   pub den: Buffer<Float> ,
   pub prs: Buffer<Float> ,
-  pub handle_cells: Buffer<u32>,
-  pub handle_indices: Buffer<u32>,
+  pub handles: Buffer<Uint2>,
   pub neighbours: Buffer<i32>,
   pub pos_resort: Vec<Float2> ,
   pub vel_resort: Vec<Float2> ,
-  pub indices_resort: Vec<u32>,
+  pub handles_resort: Vec<Uint2>,
 }
 
 impl GpuBuffers{
@@ -30,8 +29,7 @@ impl GpuBuffers{
       den: pro_que.create_buffer::<Float>().unwrap() , 
       prs: pro_que.create_buffer::<Float>().unwrap() , 
       // buffers for neighbour search
-      handle_cells: pro_que.create_buffer::<u32>().unwrap(), 
-      handle_indices: pro_que.create_buffer::<u32>().unwrap(), 
+      handles: pro_que.create_buffer::<Uint2>().unwrap(), 
       neighbours: Buffer::builder()
         .queue(pro_que.queue().clone())
         .flags(MemFlags::new().read_write())
@@ -41,7 +39,7 @@ impl GpuBuffers{
       // buffers for resorting
       pos_resort: vec![Float2::new(0.0, 0.0); n],
       vel_resort: vec![Float2::new(0.0, 0.0); n],
-      indices_resort: vec![0u32; n],
+      handles_resort: vec![Uint2::new(0,0); n],
     }
   }
 
@@ -49,25 +47,25 @@ impl GpuBuffers{
   /// velocities every n iterations to ensure memory coherency, updating
   /// the device side buffers
   pub fn load_and_resort_pos_vel(&mut self, since_resort: &mut u32, pos: &mut [Float2], vel: &mut [Float2]){
-    if *since_resort > {*RESORT_ATTRIBUTES_EVERY_N.read()} {
-      self.pos.read(&mut self.pos_resort).enq().unwrap();
-      self.vel.read(&mut self.vel_resort).enq().unwrap();
-      self.handle_indices.read(&mut self.indices_resort).enq().unwrap();
-      pos.par_iter_mut()
-        .zip(&mut *vel)
-        .zip(&self.indices_resort)
-        .for_each(|((p,v), i)|{
-          debug_assert!(*i>0);
-          *p = self.pos_resort[*i as usize];
-          *v = self.vel_resort[*i as usize];
-        });
-      self.pos.write(&*pos).enq().unwrap();
-      self.vel.write(&*vel).enq().unwrap();
-      *since_resort = 0;
-    } else {
+    // if (*since_resort > {*RESORT_ATTRIBUTES_EVERY_N.read()}) {
+    //   self.pos.read(&mut self.pos_resort).enq().unwrap();
+    //   self.vel.read(&mut self.vel_resort).enq().unwrap();
+    //   self.handles.read(&mut self.handles_resort).enq().unwrap();
+    //   pos.par_iter_mut()
+    //     .zip(&mut *vel)
+    //     .zip(&self.handles_resort)
+    //     .for_each(|((p,v), i)|{
+    //       debug_assert!(i[1]>0);
+    //       *p = self.pos_resort[i[1] as usize];
+    //       *v = self.vel_resort[i[1] as usize];
+    //     });
+    //   self.pos.write(&*pos).enq().unwrap();
+    //   self.vel.write(&*vel).enq().unwrap();
+    //   *since_resort = 0;
+    // } else {
       self.pos.read(&mut *pos).enq().unwrap();
-      *since_resort += 1;
-    }
+    //   *since_resort += 1;
+    // }
   }
 
   pub fn init_fluid_pos_vel(&self, pos: &mut Vec<Float2>, vel: &mut Vec<Float2>, n:usize){

@@ -45,7 +45,7 @@ lazy_static! {
   static ref BOUNDARY_PARTICLES:Arc<RwLock<Vec<DVec2>>> = Arc::new(RwLock::new(vec![]));
   pub static ref HISTORY:Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
   pub static ref SOLVER:AtomicSolver = AtomicSolver::new(simulation::Solver::SESPH);
-  pub static ref RESORT_ATTRIBUTES_EVERY_N:Arc<RwLock<u32>> = Arc::new(RwLock::new(64));
+  pub static ref RESORT_ATTRIBUTES_EVERY_N:Arc<RwLock<u32>> = Arc::new(RwLock::new(4));
 }
 
 // datastructure settings
@@ -54,19 +54,19 @@ static GRID_CURVE:AtomicGridCurve = AtomicGridCurve::new(GridCurve::Morton);
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-const H:f64 = 0.04;
+const H:f64 = 0.1;
 // -> Consequence of kernel support radius 2H:
 const KERNEL_SUPPORT:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
-static LAMBDA:AtomicF64 = AtomicF64::new(0.5);
+static LAMBDA:AtomicF64 = AtomicF64::new(0.2);
 static MAX_DT:AtomicF64 = AtomicF64::new(0.001);
-static INITIAL_DT:AtomicF64 = AtomicF64::new(0.005);
+static INITIAL_DT:AtomicF64 = AtomicF64::new(0.0001);
 /// Mass of a particle
 const M:f64 = H*H;
 /// Rest density of the fluid
 static RHO_ZERO:AtomicF64 = AtomicF64::new(M/(H*H));
 /// Stiffness constant determining the incompressibility in the state equation
-static K:AtomicF64 = AtomicF64::new(6_000.0);
+static K:AtomicF64 = AtomicF64::new(9_000.0);
 /// The maximum acceptable absolute density deviation in iterative SESPH with splitting
 static MAX_RHO_DEVIATION:AtomicF64 = AtomicF64::new(0.05);
 /// The type of equation relating density to pressure (stress to strain)
@@ -81,7 +81,6 @@ fn seconds_to_micros(timespan: f64)->u128{(1_000_000.0*timespan).round() as u128
 
 // ENTRY POINT
 fn main() {
-  // gpu::run().unwrap();
   let window = Window::new_with_options(
     "Stoked 2D", 
     WindowCreationOptions::new_windowed(

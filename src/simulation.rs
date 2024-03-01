@@ -1,7 +1,9 @@
 use crate::{*, sph::{kernel, kernel_derivative}, datastructure::Grid};
-use std::fmt::Debug;
+use std::{fmt::Debug, time::Duration};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
 use atomic_enum::atomic_enum;
+
+use self::gui::SIMULATION_TOGGLE;
 
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -19,6 +21,8 @@ pub fn run(){
   {  HISTORY.write().reset_and_add(&state, &grid, current_t); }
   let mut last_update_time = timestamp();
   while !REQUEST_RESTART.fetch_and(false, Relaxed) {
+    // wait if requested
+    while *SIMULATION_TOGGLE.read() { thread::sleep(Duration::from_millis(100)); }
     // update the datastructure and potentially resort particle attributes
     if since_resort > {*RESORT_ATTRIBUTES_EVERY_N.read()} {
       state.resort(&grid);
