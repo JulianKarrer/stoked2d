@@ -32,7 +32,7 @@ lazy_static! {
   static ref DRAG_LAST:Arc<RwLock<Option<speedy2d::dimen::Vec2>>> = Arc::new(RwLock::new(None));
   static ref LAST_FRAME_TIME:Atomic<u128> = Atomic::new(0);
   static ref PLAY_STATE:Arc<RwLock<PlaybackState>> = Arc::new(RwLock::new(PlaybackState::CaughtUp));
-  pub static ref SIMULATION_TOGGLE:Arc<RwLock<bool>> = Arc::new(RwLock::new(true));
+  pub static ref SIMULATION_TOGGLE:Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
   // image data for png icons:
   static ref IMAGE_PLAY:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
   static ref IMAGE_PAUSE:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));

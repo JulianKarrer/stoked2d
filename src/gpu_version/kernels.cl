@@ -64,8 +64,7 @@ __kernel void update_densities_pressures(
   __global float* den,
   __global float* prs,
   __global float2* pos, 
-  __global uint* cells,
-  __global uint* indices,
+  __global uint2* handles,
   __global int* neighbours,
   // constants
   float mass,
@@ -81,9 +80,9 @@ __kernel void update_densities_pressures(
   for (int k=0; k<3; k++){
     int j=neighbours[3*i+k]; // j is an index into `handles`
     if (j>=0){
-      int initial_cell = cells[j];
-      while (j<n && cells[j]<initial_cell+3){
-        new_den += w(p, pos[indices[j]], alpha, h);
+      int initial_cell = (handles[j][0]);
+      while (j<n && (handles[j][0])<initial_cell+3){
+        new_den += w(p, pos[handles[j][1]], alpha, h);
         j++;
       }
     }
@@ -103,8 +102,7 @@ __kernel void apply_gravity_viscosity(
   __global float2* vel,
   __global float2* pos,
   __global float* den,
-  __global uint* cells,
-  __global uint* indices,
+  __global uint2* handles,
   __global int* neighbours,
   // constants
   float mass,
@@ -122,14 +120,14 @@ __kernel void apply_gravity_viscosity(
   for (int k=0; k<3; k++){
     int j=neighbours[3*i+k]; // j is an index into `handles`
     if (j>=0){
-      int initial_cell = cells[j];
-      while (j<n && cells[j]<initial_cell+3){
-        float2 x_i_j = x_i-pos[indices[j]];
-        float2 v_i_j = v_i-vel[indices[j]];
+      int initial_cell = handles[j][0];
+      while (j<n && (handles[j][0])<initial_cell+3){
+        float2 x_i_j = x_i-pos[handles[j][1]];
+        float2 v_i_j = v_i-vel[handles[j][1]];
         float squared_dist = length(x_i_j)*length(x_i_j);
-        vis += (mass/den[indices[j]]) * 
+        vis += (mass/den[handles[j][1]]) * 
           (dot(v_i_j, x_i_j)/(squared_dist + 0.01f*h*h)) * 
-          dw(x_i, pos[indices[j]], alpha, h);
+          dw(x_i, pos[handles[j][1]], alpha, h);
         j++;
       }
     }
@@ -146,8 +144,7 @@ __kernel void add_pressure_acceleration(
   __global float2* acc, 
   __global float* den,
   __global float* prs,
-  __global uint* cells,
-  __global uint* indices,
+  __global uint2* handles,
   __global int* neighbours,
   // constants
   float mass,
@@ -164,11 +161,12 @@ __kernel void add_pressure_acceleration(
   for (int k=0; k<3; k++){
     int j=neighbours[3*i+k]; // j is an index into `handles`
     if (j>=0){
-      int initial_cell = cells[j];
-      while (j<n && cells[j]<initial_cell+3){
+      int initial_cell = handles[j][0];
+      while (j<n && (handles[j][0])<initial_cell+3){
+        uint neighbour = handles[j][1];
         // symmetric formula for pressure forces
-        force -= dw(x_i, pos[indices[j]], alpha, h) * 
-          (p_i_over_rho_i_squared + prs[indices[j]]/(den[indices[j]]*den[indices[j]]));
+        force -= dw(x_i, pos[neighbour], alpha, h) * 
+          (p_i_over_rho_i_squared + prs[neighbour]/(den[neighbour]*den[neighbour]));
         j++;
       }
     }
@@ -179,21 +177,21 @@ __kernel void add_pressure_acceleration(
 
 // ~~~~~~~~~~~~ NEIGHBOURHOOD SEARCH ~~~~~~~~~~~~
 
-ulong cell_key(float2 p, float ks, float2 min){
-  uint2 key = convert_uint2_rtn((p-min)/ks);
-  return ((ulong)key.y)<<16 | key.x;
+uint cell_key(float2 p, float ks, float2 min){
+  uint2 key = convert_uint2_rtn(convert_ushort2_rtn((p-min)/ks));
+  return (key.y <<16) + key.x;
 }
 
 __kernel void compute_cell_keys(
   // atomics
-  float kernel_support,
   float2 min_extent,
+  float ks,
   // arrays
   __global float2* pos, 
-  __global uint* cells
+  __global uint2* handles
 ){
   int i = get_global_id(0);
-  cells[i] = cell_key(pos[i], kernel_support, min_extent);
+  handles[i].x = cell_key(pos[handles[i].y], ks, min_extent);
 }
 
 
@@ -202,33 +200,33 @@ __kernel void compute_neighbours(
   float2 min_extent,
   // arrays
   __global float2* pos, 
-  __global uint* cells,
-  __global uint* indices,
+  __global uint2* handles,
   __global int* neighbours,
   // constants 
   float ks,
   uint n
 ){
   int i = get_global_id(0);
+  if(i>= n){return;}
   float2 rows_nearby[3] = {
     (float2)(-ks, -ks),
     (float2)(-ks, 0),
     (float2)(-ks, ks),
   };
   for (int k=0; k<3; k++){
-    ulong key = cell_key(pos[i]+rows_nearby[k],ks,min_extent);
+    uint key = cell_key(pos[i]+rows_nearby[k],ks,min_extent);
     // binary search for key
     int result = -1;
     int low = 0;
     int high = n-1;
     while(low<=high){
       int mid = (high-low)/2+low;
-      ulong hit = cells[mid];
+      uint hit = handles[mid].x;
       if(
         (key<=hit && hit<key+3) && 
         (
           mid == 0 || 
-          !(key<=cells[mid-1] && cells[mid-1]<key+3)
+          !(key<=handles[mid-1].x && handles[mid-1].x<key+3)
         )
       ){
         result = mid;
@@ -248,12 +246,124 @@ __kernel void compute_neighbours(
 
 // ~~~~~~~~~~~~ SORTING ALGORITHM ~~~~~~~~~~~~
 
-__kernel void sort_handles(
-  // arrays
-  __global uint* cells,
-  __global uint* indices,
+// http://www.bealto.com/gpu-sorting_parallel-selection-local.html
+__kernel void sort_handles_simple(
+  __global uint2* in,
+  __global uint2* out,
+  // constants 
+  uint n,
+  __local uint* aux
+)
+{
+  int i = get_global_id(0); // current thread
+  if(i>= n){return;}
+  int wg = get_local_size(0); // workgroup size
+  uint2 iData = in[i]; // input record for current thread
+  uint iKey = (iData).x; // input key for current thread
+  int blockSize = 4 * wg; // block size
+
+  // Compute position of iKey in output
+  int pos = 0;
+  // Loop on blocks of size BLOCKSIZE keys (BLOCKSIZE must divide N)
+  for (int j=0;j<n;j+=blockSize)
+  {
+    // Load BLOCKSIZE keys using all threads (BLOCK_FACTOR values per thread)
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int index=get_local_id(0);index<blockSize;index+=wg)
+      aux[index] = (in[j+index]).x;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Loop on all values in AUX
+    for (int index=0;index<blockSize && j+index<n;index++)
+    {
+      uint jKey = aux[index]; // broadcasted, local memory
+      bool smaller = (jKey < iKey) || ( jKey == iKey && (j+index) < i ); // in[j] < in[i] ?
+      pos += (smaller)?1:0;
+    }
+  }
+  out[pos] = iData;
+}
+// {
+//   int i = get_local_id(0); // index in workgroup
+//   int wg = get_local_size(0); // workgroup size = block size, power of 2
+
+//   // Move IN, OUT to block start
+//   int offset = get_group_id(0) * wg;
+//   in += offset; out += offset;
+
+//   // Load block in AUX[WG]
+//   aux[i] = in[i];
+//   barrier(CLK_LOCAL_MEM_FENCE); // make sure AUX is entirely up to date
+
+//   // Now we will merge sub-sequences of length 1,2,...,WG/2
+//   for (int length=1;length<wg;length<<=1)
+//   {
+//     uint2 iData = aux[i];
+//     uint iKey = iData.x;
+//     int ii = i & (length-1);  // index in our sequence in 0..length-1
+//     int sibling = (i - ii) ^ length; // beginning of the sibling sequence
+//     int pos = 0;
+//     for (int inc=length;inc>0;inc>>=1) // increment for dichotomic search
+//     {
+//       int j = sibling+pos+inc-1;
+//       uint jKey = aux[j].x;
+//       bool smaller = (jKey < iKey) || ( jKey == iKey && j < i );
+//       pos += (smaller)?inc:0;
+//       pos = min(pos,length);
+//     }
+//     int bits = 2*length-1; // mask for destination
+//     int dest = ((ii + pos) & bits) | (i & ~bits); // destination index in merged sequence
+//     barrier(CLK_LOCAL_MEM_FENCE);
+//     aux[dest] = iData;
+//     barrier(CLK_LOCAL_MEM_FENCE);
+//   }
+
+//   // Write output
+//   out[i] = aux[i];
+// }
+
+
+
+__kernel void copy_handles(
+  __global uint2* in,
+  __global uint2* out,
   // constants 
   uint n
 ){
-
+  int i = get_global_id(0); // current thread
+  if(i>= n){return;}
+  out[i] = in[i];
 }
+
+// ~~~~~~~~~~~~ RESORT POS, VEL ~~~~~~~~~~~~
+__kernel void resort_data_a(
+  __global uint2* handles,
+  __global float2* pos,
+  __global float2* vel,
+  __global float2* pos_buf,
+  __global float2* vel_buf,
+  // constants 
+  uint n
+){
+  int i = get_global_id(0); // current thread
+  if(i>= n){return;}
+  pos_buf[i] = pos[handles[i].y];
+  vel_buf[i] = vel[handles[i].y];
+}
+
+__kernel void resort_data_b(
+  __global uint2* handles,
+  __global float2* pos,
+  __global float2* vel,
+  __global float2* pos_buf,
+  __global float2* vel_buf,
+  // constants 
+  uint n
+){
+  int i = get_global_id(0); // current thread
+  if(i>= n){return;}
+  pos[i] = pos_buf[i];
+  vel[i] = vel_buf[i];
+  handles[i].y = i;
+}
+

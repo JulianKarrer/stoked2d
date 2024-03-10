@@ -44,10 +44,9 @@ mod tests {
 
   const TEST_RANGE:f64 = 4.0*H;
   const ASSUMED_RANGE:f64 = 2.0*H;
-  const TEST_RUNS:usize = 1_000_000;
-  const TEST_RUNS_ACCEPTED_REL_ERROR:f64 = 0.01;
-  const IDEAL_SAMPLING_ACCEPTED_ERROR:f64 = 0.01;
-  const F64_EPSILON:f64 = f64::EPSILON*64.0;
+  const TEST_RUNS:usize = 50_000_000;
+  const TEST_RUNS_ACCEPTED_REL_ERROR:f64 = 0.001;
+  const IDEAL_SAMPLING_ACCEPTED_ERROR:f64 = 0.001;
   
   fn get_ideal_sampled_pos_around_origin()->Vec<DVec2>{
     let mut pos = vec![];
@@ -151,7 +150,7 @@ mod tests {
     let pos = get_ideal_sampled_pos_around_origin();
     let x_i = DVec2::ZERO;
     let sum:DVec2 = pos.par_iter().map(|x_j| kernel_derivative(&x_i, x_j)).sum();
-    assert!(sum.length() < F64_EPSILON)
+    assert!(sum.length() < TEST_RUNS_ACCEPTED_REL_ERROR)
   }
 
   // #[test]

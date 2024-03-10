@@ -2,32 +2,27 @@ extern crate ocl;
 
 use std::time::Duration;
 
-use ocl::{prm::{Float, Float2}, ProQue};
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
-use voracious_radix_sort::RadixSort;
+use ocl::{prm::{Float, Float2, Uint2}, Buffer, MemFlags, ProQue};
+use rayon::iter::{IntoParallelRefIterator,  ParallelIterator};
 use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::SIMULATION_TOGGLE, simulation::update_fps, *};
 
-use self::datastructure::Handle;
 
 pub fn run(){
-  // upper bound on the number of particles before initialization
-  let n: usize = ((FLUID[1].x-FLUID[0].x)/(H) + 1.0).ceil() as usize * ((FLUID[1].y-FLUID[0].y)/(H) + 1.0).ceil() as usize;
-
+  let n_est: usize = ((FLUID[1].x-FLUID[0].x)/(H) + 1.0).ceil() as usize * ((FLUID[1].y-FLUID[0].y)/(H) + 1.0).ceil() as usize;
+  
+  // buffer allocation and initialization
+  let mut pos:Vec<Float2> = Vec::with_capacity(n_est); 
+  let mut vel:Vec<Float2> = Vec::with_capacity(n_est); 
+  let n = GpuBuffers::init_cpu_side(&mut pos, &mut vel);
   let pro_que: ProQue = ProQue::builder()
     .src(include_str!("kernels.cl"))
     .dims(n)
     .build().unwrap();
   println!("Number of particles: {}",n);
-
-  // buffer allocation and initialization
-  let mut b: GpuBuffers = GpuBuffers::new(&pro_que, n);
-  let mut pos:Vec<Float2> = Vec::with_capacity(n); 
-  let mut vel:Vec<Float2> = Vec::with_capacity(n); 
-  b.init_fluid_pos_vel(&mut pos, &mut vel, n);
+  let b: GpuBuffers = GpuBuffers::new(&pro_que, n);
+  b.init_gpu_side(n, &pos, &vel);
   let mut den: Vec<Float> = vec![Float::new((M/(H*H)) as f32);pos.len()];
-  let mut handles:Vec<Handle> = (0..pos.len()).map(|i| Handle::new(i, 0)).collect();
-  let mut handle_cells:Vec<u32> = Vec::with_capacity(pos.len());
-  let mut handle_indices: Vec<u32> = vec![0u32; pos.len()];
+  let mut handles:Vec<Uint2> = (0..pos.len()).map(|i| Uint2::new(i as u32, i as u32)).collect();
 
   // define time step size
   let mut current_t = 0.0f32;
@@ -36,61 +31,59 @@ pub fn run(){
   // build relevant kernels
   let k = Kernels::new(&b, pro_que, pos.len() as u32, dt);
   
-  // MAIN LOOPddddsdfsdsADFASDFASDFASDF
+  // MAIN LOOP
   let mut last_update_time = timestamp();
   let mut since_resort = 0;
-  {  HISTORY.write().gpu_reset_and_add(&pos, &handle_indices, &den, current_t.into()); }
+  {  HISTORY.write().gpu_reset_and_add(&pos, &handles.par_iter().map(|h|h[0]).collect::<Vec<u32>>(), &den, current_t.into()); }
   while !REQUEST_RESTART.fetch_and(false, Relaxed) {
     // wait if requested
     while *SIMULATION_TOGGLE.read() { thread::sleep(Duration::from_millis(100)); }
     // update atomics to kernel programs
     k.update_atomics();
 
-    // copy pos to host for cpu side computations
-      // potentially resort particle data to restore spatial locality
-    b.load_and_resort_pos_vel(&mut since_resort, &mut pos, &mut vel);
     // update grid
-    update_grid(&k, &b, &mut handles, &mut handle_indices, &mut handle_cells, &pos);
+    if since_resort > {*RESORT_ATTRIBUTES_EVERY_N.read()} {
+      unsafe { k.resort_pos_vel.enq().unwrap(); }
+      unsafe { k.resort_pos_vel_b.enq().unwrap(); }
+      since_resort = 0;
+    } else {since_resort += 1}
+    b.pos.read(&mut pos).enq().unwrap();
+    let min: Float2 = pos.par_iter().cloned().reduce(
+      || Float2::new(f32::MAX, f32::MAX), 
+      |a,b|Float2::new(a[0].min(b[0]), a[1].min(b[1]))) 
+      - Float2::new(2.0* KERNEL_SUPPORT as f32, 2.0*KERNEL_SUPPORT as f32);
+    k.compute_neighbours.set_arg(0, &min).unwrap();
+    k.compute_cell_keys.set_arg(0, &min).unwrap();
+    unsafe { k.compute_cell_keys.enq().unwrap(); }
+    unsafe { k.sort_handles.enq().unwrap(); }
+    unsafe { k.sort_handles_b.enq().unwrap(); }
+    unsafe { k.compute_neighbours.enq().unwrap(); }
+
     
     // update densities and pressures
-    unsafe { k.densitiy_pressure_kernel.enq().unwrap(); }
+    unsafe { k.densitiy_pressure.enq().unwrap(); }
     // apply gravity and viscosity
-    unsafe { k.gravity_viscosity_kernel.enq().unwrap(); }
+    unsafe { k.gravity_viscosity.enq().unwrap(); }
     // add pressure accelerations
-    unsafe { k.pressure_acceleration_kernel.enq().unwrap(); }
+    unsafe { k.pressure_acceleration.enq().unwrap(); }
 
     // integrate accelerations to position updates
     b.vel.read(&mut vel).enq().unwrap();
     dt = update_dt_gpu(&vel, &mut current_t);
-    k.euler_cromer_kernel.set_arg(3, dt).unwrap();
-    unsafe { k.euler_cromer_kernel.enq().unwrap(); }
-    unsafe { k.boundary_kernel.enq().unwrap(); }
+    k.euler_cromer.set_arg(3, dt).unwrap();
+    unsafe { k.euler_cromer.enq().unwrap(); }
+    unsafe { k.boundary.enq().unwrap(); }
     
     // write back the positions to the global buffer for visualization and update the FPS count
     update_fps(&mut last_update_time);
     b.den.read(&mut den).enq().unwrap();
-    {  HISTORY.write().gpu_add_step(&pos, &handle_indices, &den, current_t.into()); }
+    b.handles.read(&mut handles).enq().unwrap();
+    {  HISTORY.write().gpu_add_step(&pos, &handles.par_iter().map(|h|h[1]).collect::<Vec<u32>>(), &den, current_t.into()); }
   }
 }
 
-/// Update all cell indices in the array of handles. Returns the minimum point from which the 
-/// space filling XY-curve starts.
-fn update_cell_keys(pos:&[Float2], handles:&mut [Handle])->Float2{
-  let min: Float2 = pos.par_iter().cloned().reduce(
-    || Float2::new(f32::MAX, f32::MAX), 
-    |a,b|Float2::new(a[0].min(b[0]), a[1].min(b[1]))) 
-    - Float2::new(2.0* KERNEL_SUPPORT as f32, 2.0*KERNEL_SUPPORT as f32);
-  handles.par_iter_mut().for_each(|c| c.cell = cell_key(&pos[c.index], &min));
-  min
-}
 
-/// Calculate cell index from position and minimum point of the domain extent
-fn cell_key(pos:&Float2, min:&Float2) -> u64{ 
-  let x: u32 = ((pos[0]-min[0])/KERNEL_SUPPORT as f32).floor() as u32;
-  let y: u32 = ((pos[1]-min[1])/KERNEL_SUPPORT as f32).floor() as u32;
-  ((y as u64) << 16) | x as u64
-}
-
+/// Calculate the length of a Float2
 fn len_float2(x:&Float2)->f64{
   let xc = x[0] as f64;
   let yc = x[1] as f64;
@@ -108,55 +101,166 @@ fn update_dt_gpu(vel: &[Float2], current_t: &mut f32)->f32{
   dt
 }
 
-/// Update the uniform grid.
-/// - Find the point of minimum extent
-/// - Compute cell keys for each Particle
-/// - Sort the array of handles on the CPU
-/// - transfer back the sorted cell- and index- lists to GPU
-/// - compute neighbour sets from the sorted array on the GPU
-fn update_grid(k: &Kernels, b:&GpuBuffers, handles:&mut [Handle], handle_indices: &mut Vec<u32>, handle_cells: &mut Vec<u32>, pos: &[Float2]){
-      // perform cpu side computations
-    let min = update_cell_keys(pos, handles);
-    handles.voracious_mt_sort(*THREADS);
-      // transfer sorted handles back to gpu and create neighbour lists
-    k.compute_neighbours_kernel.set_arg(0, min).unwrap();
-    handles.par_iter().map(|h|h.cell as u32).collect_into_vec(handle_cells);
-    handles.par_iter().map(|h|h.index as u32).collect_into_vec(handle_indices);
-    b.handle_cells.write(&*handle_cells).enq().unwrap();
-    b.handle_indices.write(&*handle_indices).enq().unwrap();
-      // compute neighbour sets on the GPU 
-    unsafe { k.compute_neighbours_kernel.enq().unwrap(); }
-}
-
 
 #[cfg(test)]
 mod tests {
+  use rand::Rng;
   use super::*;
   extern crate test;
+  const SORT_TEST_DATA_SIZE:u32 = 30912;
+  fn rand_uint()->u32{rand::thread_rng().gen_range(u32::MIN..u32::MAX)}
 
   #[test]
-  fn gpu_cell_keys_xyz(){
-    let min = Float2::new(0.,0.);
-    let pos:Vec<Float2> = (0..5).zip(0..5).map(|(x,y)| Float2::new(x as f32, y as f32)).collect();
-    for i in 1..pos.len(){
-      assert!(cell_key(&pos[i], &min) > cell_key(&pos[i-1], &min))
+  fn gpu_sorting_works(){
+    // create host side buffers
+    let data:Vec<Uint2> = (0..SORT_TEST_DATA_SIZE).map(|_|
+      Uint2::new(rand_uint(),rand_uint())
+    ).collect();
+    let mut sorted_data = vec![Uint2::new(0, 0); data.len()];
+
+    // create pro_que, kernel and device side buffers
+    let pro_que: ProQue = ProQue::builder()
+      .src(include_str!("kernels.cl"))
+      .dims(data.len())
+      .build().unwrap();
+    let handles: ocl::Buffer<Uint2> = pro_que.create_buffer::<Uint2>().unwrap();
+    let handles_sorted: ocl::Buffer<Uint2> = pro_que.create_buffer::<Uint2>().unwrap();
+    let workgroup_size = 32;
+    let sort_kernel = pro_que.kernel_builder("sort_handles_simple")
+      .arg(&handles)
+      .arg(&handles_sorted)
+      .arg(data.len() as u32)
+      .arg_local::<u32>(workgroup_size*4)
+      // .local_work_size(workgroup_size)
+      .build().unwrap();
+
+    // upload data, execute kernel, transfer result back to host
+    handles.write(&data).enq().unwrap();
+    unsafe { sort_kernel.cmd().local_work_size(16).enq().unwrap(); }
+    handles_sorted.read(&mut sorted_data).enq().unwrap();
+
+    // assert that the result is correct
+    let mut expected_result = data.clone();
+    expected_result.sort_by_key(|u|u[0]);
+    expected_result.iter().zip(&sorted_data).for_each(|(a,b)|{
+      assert!(a[0] == b[0], "expected: {:?}\n\n sorted: {:?}\n\n {} {}", expected_result, sorted_data, a, b);
+      assert!(a[1] == b[1], "expected: {:?}\n\n sorted: {:?}\n\n {} {}", expected_result, sorted_data, a, b);
+    });
+    assert!(expected_result.len()== sorted_data.len());
+  } 
+
+
+  #[test]
+  fn repeated_gpu_sorting_radix(){
+    for _ in 0..100{
+      gpu_sorting_radix().unwrap();
     }
-    // assert that changes in y dominate changes in x
-    assert!(cell_key(&Float2::new(4.,3.), &min) < cell_key(&Float2::new(3.,4.), &min));
-    assert!(cell_key(&Float2::new(8.,2.), &min) < cell_key(&Float2::new(2.,8.), &min));
-    // assert that an increase in x by the grid size increments the cell key once
-    assert!(
-      cell_key(&Float2::new(KERNEL_SUPPORT as f32, KERNEL_SUPPORT as f32), &min)+1 ==
-      cell_key(&Float2::new(2.*KERNEL_SUPPORT as f32, KERNEL_SUPPORT as f32), &min)
+  }
+
+  #[test]
+  fn gpu_sorting_radix()-> ocl::Result<()> {
+    // Define the OpenCL source code
+    let src = include_str!("radix.cl");
+  
+    const N: usize = 256*4*30; 
+    // https://stackoverflow.com/questions/2745074/fast-ceiling-of-an-integer-division-in-c-c
+    let n_256: usize = (1 + ((N - 1) / 256)) * 256;
+    const WORKGROUP_SIZE: usize = 256; 
+    println!("hist array size: {}", n_256);
+  
+    let pro_que = ProQue::builder()
+      .src(src)
+      .dims(n_256)
+      .build()?;
+  
+    let input = pro_que.create_buffer::<Uint2>().unwrap();
+    let output = pro_que.create_buffer::<Uint2>().unwrap();
+    let histo_zeros  =  vec![0u32; n_256];
+    let histograms = Buffer::builder()
+      .queue(pro_que.queue().clone())
+      .flags(MemFlags::new().read_write())
+      .len(n_256)
+      .copy_host_slice(&histo_zeros)
+      .build()?;
+    let count_zeros = vec![0u32; 256];
+    let counts = Buffer::builder()
+      .queue(pro_que.queue().clone())
+      .flags(MemFlags::new().read_write())
+      .len(256)
+      .copy_host_slice(&count_zeros)
+      .build()?;
+  
+    let radix_a = pro_que.kernel_builder("radix_sort_a")
+      .arg(&input)
+      .arg(&output)
+      .arg(&histograms)
+      .arg(&counts)
+      .arg_local::<u32>(WORKGROUP_SIZE)
+      .arg(0u32)
+      .arg(N as u32)
+      .local_work_size(WORKGROUP_SIZE)
+      .global_work_size(n_256) 
+      .build()?;
+    let radix_b = pro_que.kernel_builder("radix_sort_b")
+      .arg(&histograms)
+      .arg(&counts)
+      .local_work_size(WORKGROUP_SIZE)
+      .global_work_size(n_256) 
+      .build()?;
+    let radix_c = pro_que.kernel_builder("radix_sort_c")
+      .arg(&input)
+      .arg(&output)
+      .arg(&histograms)
+      .arg(&counts)
+      .arg_local::<u32>(WORKGROUP_SIZE)
+      .arg(0u32)
+      .arg(N as u32)
+      .local_work_size(WORKGROUP_SIZE)
+      .global_work_size(n_256) 
+      .build()?;
+  
+    // initialize data to sort
+    let initial_state = (0..n_256)
+      .map(|i| Uint2::new(rand_uint(), i as u32))
+      .collect::<Vec<Uint2>>();
+    input.write(&initial_state).enq()?;
+    output.write(&initial_state).enq()?;
+  
+    // execute the kernel passes
+    for (i, shift) in (0u32..32).step_by(8).enumerate(){
+      // set bitshift argument
+      radix_a.set_arg(5, shift).unwrap();
+      radix_c.set_arg(5, shift).unwrap();
+      // swap input and output buffers
+      radix_a.set_arg(0, if i%2==0 {&input} else {&output}).unwrap();
+      radix_a.set_arg(1, if i%2==0 {&output} else {&input}).unwrap();
+      radix_c.set_arg(0, if i%2==0 {&input} else {&output}).unwrap();
+      radix_c.set_arg(1, if i%2==0 {&output} else {&input}).unwrap();
+      // reset histograms
+      counts.write(&count_zeros).enq()?;
+      histograms.write(&histo_zeros).enq()?;
+      //enqueue kernels
+      unsafe {radix_a.enq()?;}
+      unsafe {radix_b.enq()?;}
+      unsafe {radix_c.enq()?;}
+    }
+  
+    // show the result
+    let mut res_in = initial_state.clone();
+    let mut res_out = initial_state.clone();
+    let mut res_hist = vec![0;n_256];
+    let mut res_counts = vec![0;256];
+    input.read(&mut res_in).enq()?;
+    output.read(&mut res_out).enq()?;
+    histograms.read(&mut res_hist).enq()?;
+    counts.read(&mut res_counts).enq()?;
+  
+    let assert_all_true:Vec<bool> = (1..N).map(|i|res_in[i][0]>= res_in[i-1][0]).collect();
+    assert!(assert_all_true.iter().all(|x|*x),
+    "in\n{:?}\n\nout\n{:?}\n\nhist\n{:?}\n\ncounts\n{:?}\n\nwrong: {:?} at {}", 
+    res_in, res_out, res_hist,res_counts,assert_all_true, assert_all_true.binary_search(&false).unwrap_or(69)
     );
-    // assert that any two positions in the same cell have the same key 
-    assert!(
-      cell_key(&Float2::new(KERNEL_SUPPORT as f32, KERNEL_SUPPORT as f32), &min) ==
-      cell_key(&Float2::new(1.9*KERNEL_SUPPORT as f32, 1.9*KERNEL_SUPPORT as f32), &min)
-    );
-    assert!(
-      cell_key(&Float2::new(KERNEL_SUPPORT as f32, KERNEL_SUPPORT as f32), &min) !=
-      cell_key(&Float2::new(2.1*KERNEL_SUPPORT as f32, 2.1*KERNEL_SUPPORT as f32), &min)
-    );
+
+    Ok(())
   }
 }
