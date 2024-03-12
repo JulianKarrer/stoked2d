@@ -1,6 +1,6 @@
 
 use ocl::{prm::{Float, Float2, Uint2}, Buffer, MemFlags, ProQue};
-use crate::{FLUID, H};
+use crate::{utils::ceil_div, FLUID, H};
 
 
 pub struct GpuBuffers{
@@ -11,8 +11,14 @@ pub struct GpuBuffers{
   pub prs: Buffer<Float> ,
   pub handles: Buffer<Uint2>,
   pub neighbours: Buffer<i32>,
+  // buffers for sorting
+  pub handles_temp: Buffer<Uint2>,
+  pub histograms: Buffer<u32>,
+  pub counts: Buffer<u32>,
+  // host side buffers for zeroing via 'write'
+  pub hist_zeros: Vec<u32>, 
+  pub counts_zeros: Vec<u32>,
   // buffers for resorting
-  pub handles_sorted: Buffer<Uint2>,
   pub pos_resort: Buffer<Float2>,
   pub vel_resort: Buffer<Float2>,
 }
@@ -21,6 +27,7 @@ impl GpuBuffers{
   /// Creates a new instance of device-side buffers and a few host buffers
   /// for resorting to preserve memory coherence.
   pub fn new(pro_que: &ProQue, n:usize)->Self{
+    let n_256 = ceil_div(n, 256);
     Self{ 
       // buffers for particle attributes
       pos: pro_que.create_buffer::<Float2>().unwrap(), 
@@ -30,7 +37,7 @@ impl GpuBuffers{
       prs: pro_que.create_buffer::<Float>().unwrap() , 
       // buffers for neighbour search
       handles: pro_que.create_buffer::<Uint2>().unwrap(), 
-      handles_sorted: pro_que.create_buffer::<Uint2>().unwrap(), 
+      handles_temp: pro_que.create_buffer::<Uint2>().unwrap(), 
       neighbours: Buffer::builder()
         .queue(pro_que.queue().clone())
         .flags(MemFlags::new().read_write())
@@ -39,7 +46,22 @@ impl GpuBuffers{
         .build().unwrap(),
       // buffers for resorting
       pos_resort: pro_que.create_buffer::<Float2>().unwrap(), 
-      vel_resort: pro_que.create_buffer::<Float2>().unwrap(), 
+      vel_resort: pro_que.create_buffer::<Float2>().unwrap(),
+      // buffers for sorting
+      histograms: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(n_256)
+        .fill_val(0u32)
+        .build().unwrap(),
+      counts: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(256)
+        .fill_val(0u32)
+        .build().unwrap(),
+      hist_zeros: vec![0u32; n_256],
+      counts_zeros: vec![0u32; 256], 
     }
   }
 

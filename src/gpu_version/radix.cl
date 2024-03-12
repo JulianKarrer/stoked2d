@@ -77,9 +77,11 @@ __kernel void radix_sort_c(
   if (gid<n && lid == 0){
     for(uint i=0; i<256; i++){
       uint j = gid+i;
-      uint key = ((input[j].x) >> shift) & 255;
-      uint pos = atomic_inc(&local_hist[key]);
-      output[pos] = input[j];
+      if (j<n){
+        uint key = ((input[j].x) >> shift) & 255;
+        uint pos = atomic_inc(&local_hist[key]);
+        output[pos] = input[j];
+      }
     }
   }
 }

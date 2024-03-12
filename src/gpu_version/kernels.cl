@@ -1,7 +1,7 @@
 
 
 
-// ~~~~~~~~~~~~ KERNEL FUNCTIONS ~~~~~~~~~~~~
+// ~~~~~~~~~~~~ KERNEL FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// cubic spline kernel function
 float w(float2 x_i, float2 x_j, float alpha, float h){
@@ -20,7 +20,7 @@ float2 dw(float2 x_i, float2 x_j, float alpha, float h){
 }
 
 
-// ~~~~~~~~~~~~ SPH APPROXIMATIONS ~~~~~~~~~~~~
+// ~~~~~~~~~~~~ SPH APPROXIMATIONS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 __kernel void eulercromerstep(
   // arrays
@@ -175,7 +175,7 @@ __kernel void add_pressure_acceleration(
   acc[i] += force*mass;
 }
 
-// ~~~~~~~~~~~~ NEIGHBOURHOOD SEARCH ~~~~~~~~~~~~
+// ~~~~~~~~~~~~ NEIGHBOURHOOD SEARCH ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 uint cell_key(float2 p, float ks, float2 min){
   uint2 key = convert_uint2_rtn(convert_ushort2_rtn((p-min)/ks));
@@ -244,98 +244,99 @@ __kernel void compute_neighbours(
   }
 }
 
-// ~~~~~~~~~~~~ SORTING ALGORITHM ~~~~~~~~~~~~
+// ~~~~~~~~~~~~ RADIX SORT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-// http://www.bealto.com/gpu-sorting_parallel-selection-local.html
-__kernel void sort_handles_simple(
-  __global uint2* in,
-  __global uint2* out,
-  // constants 
-  uint n,
-  __local uint* aux
-)
-{
-  int i = get_global_id(0); // current thread
-  if(i>= n){return;}
-  int wg = get_local_size(0); // workgroup size
-  uint2 iData = in[i]; // input record for current thread
-  uint iKey = (iData).x; // input key for current thread
-  int blockSize = 4 * wg; // block size
-
-  // Compute position of iKey in output
-  int pos = 0;
-  // Loop on blocks of size BLOCKSIZE keys (BLOCKSIZE must divide N)
-  for (int j=0;j<n;j+=blockSize)
-  {
-    // Load BLOCKSIZE keys using all threads (BLOCK_FACTOR values per thread)
-    barrier(CLK_LOCAL_MEM_FENCE);
-    for (int index=get_local_id(0);index<blockSize;index+=wg)
-      aux[index] = (in[j+index]).x;
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    // Loop on all values in AUX
-    for (int index=0;index<blockSize && j+index<n;index++)
-    {
-      uint jKey = aux[index]; // broadcasted, local memory
-      bool smaller = (jKey < iKey) || ( jKey == iKey && (j+index) < i ); // in[j] < in[i] ?
-      pos += (smaller)?1:0;
-    }
-  }
-  out[pos] = iData;
-}
-// {
-//   int i = get_local_id(0); // index in workgroup
-//   int wg = get_local_size(0); // workgroup size = block size, power of 2
-
-//   // Move IN, OUT to block start
-//   int offset = get_group_id(0) * wg;
-//   in += offset; out += offset;
-
-//   // Load block in AUX[WG]
-//   aux[i] = in[i];
-//   barrier(CLK_LOCAL_MEM_FENCE); // make sure AUX is entirely up to date
-
-//   // Now we will merge sub-sequences of length 1,2,...,WG/2
-//   for (int length=1;length<wg;length<<=1)
-//   {
-//     uint2 iData = aux[i];
-//     uint iKey = iData.x;
-//     int ii = i & (length-1);  // index in our sequence in 0..length-1
-//     int sibling = (i - ii) ^ length; // beginning of the sibling sequence
-//     int pos = 0;
-//     for (int inc=length;inc>0;inc>>=1) // increment for dichotomic search
-//     {
-//       int j = sibling+pos+inc-1;
-//       uint jKey = aux[j].x;
-//       bool smaller = (jKey < iKey) || ( jKey == iKey && j < i );
-//       pos += (smaller)?inc:0;
-//       pos = min(pos,length);
-//     }
-//     int bits = 2*length-1; // mask for destination
-//     int dest = ((ii + pos) & bits) | (i & ~bits); // destination index in merged sequence
-//     barrier(CLK_LOCAL_MEM_FENCE);
-//     aux[dest] = iData;
-//     barrier(CLK_LOCAL_MEM_FENCE);
-//   }
-
-//   // Write output
-//   out[i] = aux[i];
-// }
-
-
-
-__kernel void copy_handles(
-  __global uint2* in,
-  __global uint2* out,
-  // constants 
+// assumes that local workgroup size is 256 and global size is a multiple of 256
+__kernel void radix_sort_histograms(
+  __global uint2* input, // must be of size n
+  __global uint2* output, // must be of size n
+  __global uint* global_hist, // must be 256 entries per workgroup
+  __global uint* counts, // must be 256 entries
+  __local uint* local_hist, // must be of size 256 for each workgroup
+  uint shift, // must be one of [0,8,16,24]
   uint n
 ){
-  int i = get_global_id(0); // current thread
-  if(i>= n){return;}
-  out[i] = in[i];
+  uint gid = get_global_id(0);
+  uint lid = get_local_id(0);
+
+  // initialize local histogram to zeros
+  local_hist[lid] = 0;
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // calculate key using selected byte and enter it 
+  // in the local histogram
+  if(gid < n){
+    uint key = ((input[gid].x) >> shift) & 255;
+    atomic_inc(&local_hist[key]);
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // write back histograms to global memory to compute the global prefix sum
+  global_hist[gid] = local_hist[lid];
+  atomic_add(&counts[lid], local_hist[lid]);
 }
 
-// ~~~~~~~~~~~~ RESORT POS, VEL ~~~~~~~~~~~~
+
+// assumes that local workgroup size is 256 and global size is a multiple of 256
+__kernel void radix_sort_prefixsum(
+  __global uint* global_hist, // must be 256 entries per workgroup
+  __global uint* counts // must be 256 entries
+){
+  uint gid = get_global_id(0);
+  // compute exclusive prefix sum of counts
+  if(gid==0){
+    uint prefix_sum = 0;
+    for(uint i=0; i<256; i++){
+      uint temp = counts[i];
+      counts[i] = prefix_sum;
+      prefix_sum += temp;
+    }
+  }
+  barrier(CLK_GLOBAL_MEM_FENCE);
+
+  if(gid < 256){
+    uint prefix_sum = 0;
+    for (uint i=gid; i<get_global_size(0); i+=256){
+      uint temp = global_hist[i];
+      global_hist[i] = prefix_sum;
+      prefix_sum += temp;
+    }
+  }
+}
+
+// assumes that local workgroup size is 256 and global size is a multiple of 256
+__kernel void radix_sort_reorder(
+  __global uint2* input, // must be of size n
+  __global uint2* output, // must be of size n
+  __global uint* global_hist, // must be 256 entries per workgroup
+  __global uint* counts, // must be 256 entries
+  __local uint* local_hist, // must be of size 256 for each workgroup
+  uint shift, // must be one of [0,8,16,24]
+  uint n
+){
+  uint gid = get_global_id(0);
+  uint lid = get_local_id(0);
+
+  // write global hist back to local hist
+  local_hist[lid] = global_hist[gid] + counts[lid];
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // sort output based on counts and global hist
+  if (gid<n && lid == 0){
+    for(uint i=0; i<256; i++){
+      uint j = gid+i;
+      if (j<n){
+        uint key = ((input[j].x) >> shift) & 255;
+        uint pos = atomic_inc(&local_hist[key]);
+        output[pos] = input[j];
+      }
+    }
+  }
+}
+
+
+
+// ~~~~~~~~~~~~ RESORT POS, VEL ~~~~~~~~~~~~!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 __kernel void resort_data_a(
   __global uint2* handles,
   __global float2* pos,

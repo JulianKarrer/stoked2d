@@ -19,6 +19,7 @@ use gui::StokedWindowHandler;
 mod simulation;
 mod sph;
 mod datastructure;
+mod utils;
 mod gpu_version{
   pub mod gpu;
   pub mod buffers;

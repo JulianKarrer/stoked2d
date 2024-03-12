@@ -1,6 +1,6 @@
-use ocl::{prm::{Float2, Uint2}, Kernel, ProQue};
+use ocl::{prm::Float2, Kernel, ProQue};
 
-use crate::{sph::KERNEL_CUBIC_NORMALIZE, BOUNDARY, GRAVITY, H, K, KERNEL_SUPPORT, M, NU, RHO_ZERO};
+use crate::{sph::KERNEL_CUBIC_NORMALIZE, utils::ceil_div, BOUNDARY, GRAVITY, H, K, KERNEL_SUPPORT, M, NU, RHO_ZERO};
 use std::sync::atomic::Ordering::Relaxed;
 use super::buffers::GpuBuffers;
 
@@ -13,10 +13,11 @@ pub struct Kernels{
   pub pressure_acceleration:Kernel,
   pub compute_neighbours:Kernel,
   pub compute_cell_keys:Kernel,
-  pub sort_handles:Kernel,
-  pub sort_handles_b:Kernel,
   pub resort_pos_vel:Kernel,
   pub resort_pos_vel_b:Kernel,
+  radix_sort_histograms:Kernel,
+  radix_sort_prefixsum:Kernel,
+  radix_sort_reorder:Kernel,
 }
 
 impl Kernels{
@@ -94,19 +95,6 @@ impl Kernels{
       .arg(&b.pos)
       .arg(&b.handles)
       .build().unwrap();
-    let workgroup_size = 32;
-    let sort_kernel = pro_que.kernel_builder("sort_handles_simple")
-        .arg(&b.handles)
-        .arg(&b.handles_sorted)
-        .arg(n)
-        .arg_local::<Uint2>(workgroup_size)
-        .local_work_size(workgroup_size)
-        .build().unwrap();
-    let copy_handles = pro_que.kernel_builder("copy_handles")
-      .arg(&b.handles_sorted)
-      .arg(&b.handles)
-      .arg(n)
-      .build().unwrap();
     let resort_pos_vel = pro_que.kernel_builder("resort_data_a")
       .arg(&b.handles)
       .arg(&b.pos)
@@ -123,6 +111,38 @@ impl Kernels{
       .arg(&b.vel_resort)
       .arg(n)
       .build().unwrap();
+
+    let workgroup_size = 256;
+    let n_256 = ceil_div(n as usize, workgroup_size);
+    let radix_sort_histograms = pro_que.kernel_builder("radix_sort_histograms")
+      .arg(&b.handles)
+      .arg(&b.handles_temp)
+      .arg(&b.histograms)
+      .arg(&b.counts)
+      .arg_local::<u32>(workgroup_size)
+      .arg(0u32)
+      .arg(n)
+      .local_work_size(workgroup_size)
+      .global_work_size(n_256) 
+      .build().unwrap();
+    let radix_sort_prefixsum = pro_que.kernel_builder("radix_sort_prefixsum")
+      .arg(&b.histograms)
+      .arg(&b.counts)
+      .local_work_size(workgroup_size)
+      .global_work_size(n_256) 
+      .build().unwrap();
+    let radix_sort_reorder = pro_que.kernel_builder("radix_sort_reorder")
+      .arg(&b.handles)
+      .arg(&b.handles_temp)
+      .arg(&b.histograms)
+      .arg(&b.counts)
+      .arg_local::<u32>(workgroup_size)
+      .arg(0u32)
+      .arg(n)
+      .local_work_size(workgroup_size)
+      .global_work_size(n_256) 
+      .build().unwrap();
+    
     Self { 
       euler_cromer: euler_cromer_kernel, 
       boundary: boundary_kernel, 
@@ -131,10 +151,11 @@ impl Kernels{
       pressure_acceleration: pressure_acceleration_kernel, 
       compute_neighbours: compute_neighbours_kernel,
       compute_cell_keys: compute_cell_keys_kernel, 
-      sort_handles: sort_kernel,
-      sort_handles_b: copy_handles,
       resort_pos_vel,
       resort_pos_vel_b,
+      radix_sort_histograms,
+      radix_sort_prefixsum,
+      radix_sort_reorder,
     }
   }
 
@@ -146,6 +167,34 @@ impl Kernels{
     self.gravity_viscosity.set_arg(0, NU.load(Relaxed) as f32).unwrap();
     self.gravity_viscosity.set_arg(1, GRAVITY.load(Relaxed) as f32).unwrap();
     self.pressure_acceleration.set_arg(0, RHO_ZERO.load(Relaxed) as f32).unwrap();
+  }
+
+  pub fn sort_handles(&self, b: &GpuBuffers){
+    for (i, shift) in (0u32..32).step_by(8).enumerate(){
+      // set bitshift argument
+      self.radix_sort_histograms.set_arg(5, shift).unwrap();
+      self.radix_sort_reorder.set_arg(5, shift).unwrap();
+      // swap input and output buffers
+      self.radix_sort_histograms.set_arg(0, 
+        if i%2==0 {&b.handles} else {&b.handles_temp}
+      ).unwrap();
+      self.radix_sort_histograms.set_arg(1, 
+        if i%2==0 {&b.handles_temp} else {&b.handles}
+      ).unwrap();
+      self.radix_sort_reorder.set_arg(0, 
+        if i%2==0 {&b.handles} else {&b.handles_temp}
+      ).unwrap();
+      self.radix_sort_reorder.set_arg(1, 
+        if i%2==0 {&b.handles_temp} else {&b.handles}
+      ).unwrap();
+      // reset histograms
+      b.counts.write(&b.counts_zeros).enq().unwrap();
+      b.histograms.write(&b.hist_zeros).enq().unwrap();
+      //enqueue kernels
+      unsafe {self.radix_sort_histograms.enq().unwrap();}
+      unsafe {self.radix_sort_prefixsum.enq().unwrap();}
+      unsafe {self.radix_sort_reorder.enq().unwrap();}
+    }
   }
 
 }

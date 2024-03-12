@@ -2,7 +2,7 @@ extern crate ocl;
 
 use std::time::Duration;
 
-use ocl::{prm::{Float, Float2, Uint2}, Buffer, MemFlags, ProQue};
+use ocl::{prm::{Float, Float2, Uint2}, ProQue};
 use rayon::iter::{IntoParallelRefIterator,  ParallelIterator};
 use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::SIMULATION_TOGGLE, simulation::update_fps, *};
 
@@ -55,8 +55,7 @@ pub fn run(){
     k.compute_neighbours.set_arg(0, &min).unwrap();
     k.compute_cell_keys.set_arg(0, &min).unwrap();
     unsafe { k.compute_cell_keys.enq().unwrap(); }
-    unsafe { k.sort_handles.enq().unwrap(); }
-    unsafe { k.sort_handles_b.enq().unwrap(); }
+    k.sort_handles(&b);
     unsafe { k.compute_neighbours.enq().unwrap(); }
 
     
@@ -104,8 +103,11 @@ fn update_dt_gpu(vel: &[Float2], current_t: &mut f32)->f32{
 
 #[cfg(test)]
 mod tests {
+  use ocl::{Buffer, MemFlags};
   use rand::Rng;
-  use super::*;
+  use crate::utils::ceil_div;
+
+use super::*;
   extern crate test;
   const SORT_TEST_DATA_SIZE:u32 = 30912;
   fn rand_uint()->u32{rand::thread_rng().gen_range(u32::MIN..u32::MAX)}
@@ -152,7 +154,7 @@ mod tests {
 
   #[test]
   fn repeated_gpu_sorting_radix(){
-    for _ in 0..100{
+    for _ in 0..50{
       gpu_sorting_radix().unwrap();
     }
   }
@@ -162,10 +164,9 @@ mod tests {
     // Define the OpenCL source code
     let src = include_str!("radix.cl");
   
-    const N: usize = 256*4*30; 
-    // https://stackoverflow.com/questions/2745074/fast-ceiling-of-an-integer-division-in-c-c
-    let n_256: usize = (1 + ((N - 1) / 256)) * 256;
     const WORKGROUP_SIZE: usize = 256; 
+    let n: usize = rand::thread_rng().gen_range(2..5_000_000); 
+    let n_256 = ceil_div(n, 256);
     println!("hist array size: {}", n_256);
   
     let pro_que = ProQue::builder()
@@ -180,14 +181,14 @@ mod tests {
       .queue(pro_que.queue().clone())
       .flags(MemFlags::new().read_write())
       .len(n_256)
-      .copy_host_slice(&histo_zeros)
+      .fill_val(0u32)
       .build()?;
     let count_zeros = vec![0u32; 256];
     let counts = Buffer::builder()
       .queue(pro_que.queue().clone())
       .flags(MemFlags::new().read_write())
       .len(256)
-      .copy_host_slice(&count_zeros)
+      .fill_val(0u32)
       .build()?;
   
     let radix_a = pro_que.kernel_builder("radix_sort_a")
@@ -197,7 +198,7 @@ mod tests {
       .arg(&counts)
       .arg_local::<u32>(WORKGROUP_SIZE)
       .arg(0u32)
-      .arg(N as u32)
+      .arg(n as u32)
       .local_work_size(WORKGROUP_SIZE)
       .global_work_size(n_256) 
       .build()?;
@@ -214,7 +215,7 @@ mod tests {
       .arg(&counts)
       .arg_local::<u32>(WORKGROUP_SIZE)
       .arg(0u32)
-      .arg(N as u32)
+      .arg(n as u32)
       .local_work_size(WORKGROUP_SIZE)
       .global_work_size(n_256) 
       .build()?;
@@ -255,7 +256,7 @@ mod tests {
     histograms.read(&mut res_hist).enq()?;
     counts.read(&mut res_counts).enq()?;
   
-    let assert_all_true:Vec<bool> = (1..N).map(|i|res_in[i][0]>= res_in[i-1][0]).collect();
+    let assert_all_true:Vec<bool> = (1..n).map(|i|res_in[i][0]>= res_in[i-1][0]).collect();
     assert!(assert_all_true.iter().all(|x|*x),
     "in\n{:?}\n\nout\n{:?}\n\nhist\n{:?}\n\ncounts\n{:?}\n\nwrong: {:?} at {}", 
     res_in, res_out, res_hist,res_counts,assert_all_true, assert_all_true.binary_search(&false).unwrap_or(69)
