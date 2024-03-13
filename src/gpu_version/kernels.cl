@@ -258,6 +258,8 @@ __kernel void radix_sort_histograms(
 ){
   uint gid = get_global_id(0);
   uint lid = get_local_id(0);
+  uint wid = get_group_id(0);
+  uint n_groups = get_num_groups(0);
 
   // initialize local histogram to zeros
   local_hist[lid] = 0;
@@ -272,18 +274,23 @@ __kernel void radix_sort_histograms(
   barrier(CLK_LOCAL_MEM_FENCE);
 
   // write back histograms to global memory to compute the global prefix sum
-  global_hist[gid] = local_hist[lid];
+  global_hist[lid*n_groups + wid] = local_hist[lid];
   atomic_add(&counts[lid], local_hist[lid]);
 }
 
 
-// assumes that local workgroup size is 256 and global size is a multiple of 256
+// assumes local worksize is n_groups
 __kernel void radix_sort_prefixsum(
   __global uint* global_hist, // must be 256 entries per workgroup
-  __global uint* counts // must be 256 entries
+  __local uint* local_hist, // must be n_groups large
+  __global uint* counts, // must be 256 entries
+  uint n_groups
 ){
+  // compute exclusive prefix sum of all histograms
+  uint lid = get_local_id(0);
+  uint wid = get_group_id(0);
+  uint n = get_local_size(0);
   uint gid = get_global_id(0);
-  // compute exclusive prefix sum of counts
   if(gid==0){
     uint prefix_sum = 0;
     for(uint i=0; i<256; i++){
@@ -292,15 +299,49 @@ __kernel void radix_sort_prefixsum(
       prefix_sum += temp;
     }
   }
-  barrier(CLK_GLOBAL_MEM_FENCE);
 
-  if(gid < 256){
-    uint prefix_sum = 0;
-    for (uint i=gid; i<get_global_size(0); i+=256){
-      uint temp = global_hist[i];
-      global_hist[i] = prefix_sum;
-      prefix_sum += temp;
+  // load histogram into shared memory
+  if (lid < n_groups){
+    local_hist[lid] = global_hist[lid + wid*n_groups];
+  } else {
+    local_hist[lid] = 0;
+  }
+  
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // upsweep
+  uint stride = 1;
+  while (stride < n) {
+    barrier(CLK_LOCAL_MEM_FENCE);
+    int index = (lid + 1) * stride * 2 - 1;
+    if (index < n) {
+      local_hist[index] += local_hist[index - stride];
     }
+    stride *= 2;
+  }
+
+  if (lid == 0) {
+    local_hist[n - 1] = 0;
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // downsweep
+  stride = n / 2;
+  while (stride >= 1) {
+    barrier(CLK_LOCAL_MEM_FENCE);
+    int index = (lid + 1) * stride * 2 - 1;
+    if (index < n) {
+      uint left = local_hist[index - stride];
+      local_hist[index - stride] = local_hist[index];
+      local_hist[index] += left;
+    }
+    stride /= 2;
+  }
+
+  // write back shared memory to global
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (lid < n_groups){
+    global_hist[lid + wid*n_groups] = local_hist[lid];
   }
 }
 
@@ -316,9 +357,11 @@ __kernel void radix_sort_reorder(
 ){
   uint gid = get_global_id(0);
   uint lid = get_local_id(0);
+  uint wid = get_group_id(0);
+  uint n_groups = get_num_groups(0);
 
   // write global hist back to local hist
-  local_hist[lid] = global_hist[gid] + counts[lid];
+  local_hist[lid] = global_hist[lid*n_groups + wid] + counts[lid];
   barrier(CLK_LOCAL_MEM_FENCE);
 
   // sort output based on counts and global hist
@@ -339,8 +382,8 @@ __kernel void radix_sort_reorder(
 // ~~~~~~~~~~~~ RESORT POS, VEL ~~~~~~~~~~~~!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 __kernel void resort_data_a(
   __global uint2* handles,
-  __global float2* pos,
-  __global float2* vel,
+  __global const float2* pos,
+  __global const float2* vel,
   __global float2* pos_buf,
   __global float2* vel_buf,
   // constants 
@@ -356,8 +399,8 @@ __kernel void resort_data_b(
   __global uint2* handles,
   __global float2* pos,
   __global float2* vel,
-  __global float2* pos_buf,
-  __global float2* vel_buf,
+  __global const float2* pos_buf,
+  __global const float2* vel_buf,
   // constants 
   uint n
 ){

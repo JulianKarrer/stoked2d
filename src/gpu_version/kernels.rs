@@ -125,11 +125,15 @@ impl Kernels{
       .local_work_size(workgroup_size)
       .global_work_size(n_256) 
       .build().unwrap();
+    let n_groups = n_256/256;
+    let next_power_of_two = (2u32).pow((n_groups as f64).log2().ceil() as u32) as usize;
     let radix_sort_prefixsum = pro_que.kernel_builder("radix_sort_prefixsum")
       .arg(&b.histograms)
+      .arg_local::<u32>(next_power_of_two)
       .arg(&b.counts)
-      .local_work_size(workgroup_size)
-      .global_work_size(n_256) 
+      .arg(n_groups as u32)
+      .local_work_size(next_power_of_two)
+      .global_work_size(next_power_of_two*256) 
       .build().unwrap();
     let radix_sort_reorder = pro_que.kernel_builder("radix_sort_reorder")
       .arg(&b.handles)
