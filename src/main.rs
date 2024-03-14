@@ -52,6 +52,10 @@ lazy_static! {
 // datastructure settings
 static GRID_CURVE:AtomicGridCurve = AtomicGridCurve::new(GridCurve::Morton);
 
+// gpu settings
+const WARP:usize = 256;
+const WORKGROUP_SIZE:usize = 256;
+
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing

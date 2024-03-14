@@ -1,6 +1,6 @@
 
 use ocl::{prm::{Float, Float2, Uint2}, Buffer, MemFlags, ProQue};
-use crate::{utils::ceil_div, FLUID, H};
+use crate::{utils::ceil_div, FLUID, H, WARP, WORKGROUP_SIZE};
 
 
 pub struct GpuBuffers{
@@ -15,9 +15,11 @@ pub struct GpuBuffers{
   pub handles_temp: Buffer<Uint2>,
   pub histograms: Buffer<u32>,
   pub counts: Buffer<u32>,
+  pub counts_b: Buffer<u32>,
   // host side buffers for zeroing via 'write'
   pub hist_zeros: Vec<u32>, 
   pub counts_zeros: Vec<u32>,
+  pub counts_b_zeros: Vec<u32>,
   // buffers for resorting
   pub pos_resort: Buffer<Float2>,
   pub vel_resort: Buffer<Float2>,
@@ -27,7 +29,9 @@ impl GpuBuffers{
   /// Creates a new instance of device-side buffers and a few host buffers
   /// for resorting to preserve memory coherence.
   pub fn new(pro_que: &ProQue, n:usize)->Self{
-    let n_256 = ceil_div(n, 256);
+    let n_256 = ceil_div(n as usize, WORKGROUP_SIZE);
+    let n_groups = n_256/256;
+    let splinters = 1 + ((n_groups - 1) / WARP);
     Self{ 
       // buffers for particle attributes
       pos: pro_que.create_buffer::<Float2>().unwrap(), 
@@ -60,8 +64,15 @@ impl GpuBuffers{
         .len(256)
         .fill_val(0u32)
         .build().unwrap(),
+      counts_b: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(splinters*256)
+        .fill_val(0u32)
+        .build().unwrap(),
       hist_zeros: vec![0u32; n_256],
-      counts_zeros: vec![0u32; 256], 
+      counts_zeros: vec![0u32; 256],
+      counts_b_zeros: vec![0u32; splinters*256], 
     }
   }
 

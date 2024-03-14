@@ -280,10 +280,11 @@ __kernel void radix_sort_histograms(
 
 
 // assumes local worksize is n_groups
-__kernel void radix_sort_prefixsum(
+__kernel void radix_sort_prefixsum_a(
   __global uint* global_hist, // must be 256 entries per workgroup
   __local uint* local_hist, // must be n_groups large
   __global uint* counts, // must be 256 entries
+  __global uint* counts_b,  // must be splinters*256 many
   uint n_groups
 ){
   // compute exclusive prefix sum of all histograms
@@ -300,13 +301,18 @@ __kernel void radix_sort_prefixsum(
     }
   }
 
+  // compute effective id
+  uint padded = (1 + ((n_groups - 1) / n)) * n;
+  uint splinters = (1 + ((n_groups - 1) / n));
+  uint eid = (lid+wid*n) % padded;
+  uint my_hist = wid/splinters;
+
   // load histogram into shared memory
-  if (lid < n_groups){
-    local_hist[lid] = global_hist[lid + wid*n_groups];
+  if (eid < n_groups){
+    local_hist[lid] = global_hist[eid + my_hist*n_groups];
   } else {
     local_hist[lid] = 0;
   }
-  
   barrier(CLK_LOCAL_MEM_FENCE);
 
   // upsweep
@@ -319,8 +325,8 @@ __kernel void radix_sort_prefixsum(
     }
     stride *= 2;
   }
-
   if (lid == 0) {
+    counts_b[wid] = local_hist[n-1];
     local_hist[n - 1] = 0;
   }
   barrier(CLK_LOCAL_MEM_FENCE);
@@ -340,9 +346,54 @@ __kernel void radix_sort_prefixsum(
 
   // write back shared memory to global
   barrier(CLK_LOCAL_MEM_FENCE);
-  if (lid < n_groups){
-    global_hist[lid + wid*n_groups] = local_hist[lid];
+  if (eid < n_groups){
+    global_hist[eid + my_hist*n_groups] = local_hist[lid];
   }
+}
+
+// assumes local worksize is n_groups
+__kernel void radix_sort_prefixsum_b(
+  __global uint* global_hist, // must be 256 entries per workgroup
+  __local uint* local_hist, // must be n_groups large
+  __global uint* counts, // must be 256 entries
+  __global uint* counts_b, // must be splinters*256 many
+  uint n_groups
+){
+  uint n = get_local_size(0);
+  uint gid = get_global_id(0);
+  uint splinters = (1 + ((n_groups - 1) / n));
+
+  if (gid < 256){
+    uint prefix_sum = 0;
+    for(uint i=0; i<splinters; i++){
+      uint temp = counts_b[i+gid*splinters];
+      counts_b[i+gid*splinters] = prefix_sum;
+      prefix_sum += temp;
+    }
+  }
+}
+// assumes local worksize is n_groups
+__kernel void radix_sort_prefixsum_c(
+  __global uint* global_hist, // must be 256 entries per workgroup
+  __local uint* local_hist, // must be n_groups large
+  __global uint* counts, // must be 256 entries
+  __global uint* counts_b,  // must be splinters*256 many
+  uint n_groups
+){
+  uint lid = get_local_id(0);
+  uint wid = get_group_id(0);
+  uint n = get_local_size(0);
+  uint gid = get_global_id(0);
+
+  uint padded = (1 + ((n_groups - 1) / n)) * n;
+  uint splinters = (1 + ((n_groups - 1) / n));
+  uint eid = (lid+wid*n) % padded;
+  uint my_hist = wid/splinters;
+
+  // load histogram into shared memory
+  if (eid < n_groups){
+    atomic_add(&global_hist[eid + my_hist*n_groups], counts_b[wid]);
+  } 
 }
 
 // assumes that local workgroup size is 256 and global size is a multiple of 256

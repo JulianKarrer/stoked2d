@@ -1,9 +1,21 @@
 use ocl::{prm::Float2, Kernel, ProQue};
 
-use crate::{sph::KERNEL_CUBIC_NORMALIZE, utils::ceil_div, BOUNDARY, GRAVITY, H, K, KERNEL_SUPPORT, M, NU, RHO_ZERO};
+use crate::{sph::KERNEL_CUBIC_NORMALIZE, utils::ceil_div, BOUNDARY, GRAVITY, H, K, KERNEL_SUPPORT, M, NU, RHO_ZERO, WARP, WORKGROUP_SIZE};
 use std::sync::atomic::Ordering::Relaxed;
 use super::buffers::GpuBuffers;
 
+pub struct KernelGroup{
+  pub group: Vec<Kernel>
+}
+impl KernelGroup{
+  pub unsafe fn enq(&self)->ocl::Result<()>{
+    for kernel in &self.group{unsafe { kernel.enq()? }}
+    Ok(())
+  }
+  fn new(vec:Vec<Kernel>)->Self{
+    Self { group: vec }
+  }
+}
 
 pub struct Kernels{
   pub euler_cromer:Kernel,
@@ -15,9 +27,7 @@ pub struct Kernels{
   pub compute_cell_keys:Kernel,
   pub resort_pos_vel:Kernel,
   pub resort_pos_vel_b:Kernel,
-  radix_sort_histograms:Kernel,
-  radix_sort_prefixsum:Kernel,
-  radix_sort_reorder:Kernel,
+  radix_sort:KernelGroup,
 }
 
 impl Kernels{
@@ -112,38 +122,56 @@ impl Kernels{
       .arg(n)
       .build().unwrap();
 
-    let workgroup_size = 256;
-    let n_256 = ceil_div(n as usize, workgroup_size);
-    let radix_sort_histograms = pro_que.kernel_builder("radix_sort_histograms")
+    let n_256 = ceil_div(n as usize, WORKGROUP_SIZE);
+    let n_groups = n_256/256;
+    let splinters = 1 + ((n_groups - 1) / WARP);
+  
+    let radix_a = pro_que.kernel_builder("radix_sort_histograms")
       .arg(&b.handles)
       .arg(&b.handles_temp)
       .arg(&b.histograms)
       .arg(&b.counts)
-      .arg_local::<u32>(workgroup_size)
+      .arg_local::<u32>(WORKGROUP_SIZE)
       .arg(0u32)
-      .arg(n)
-      .local_work_size(workgroup_size)
+      .arg(n as u32)
+      .local_work_size(WORKGROUP_SIZE)
       .global_work_size(n_256) 
       .build().unwrap();
-    let n_groups = n_256/256;
-    let next_power_of_two = (2u32).pow((n_groups as f64).log2().ceil() as u32) as usize;
-    let radix_sort_prefixsum = pro_que.kernel_builder("radix_sort_prefixsum")
+    let radix_b = pro_que.kernel_builder("radix_sort_prefixsum_a")
       .arg(&b.histograms)
-      .arg_local::<u32>(next_power_of_two)
+      .arg_local::<u32>(WARP)
       .arg(&b.counts)
+      .arg(&b.counts_b)
       .arg(n_groups as u32)
-      .local_work_size(next_power_of_two)
-      .global_work_size(next_power_of_two*256) 
+      .local_work_size(WARP)
+      .global_work_size((WARP*splinters)*256) 
       .build().unwrap();
-    let radix_sort_reorder = pro_que.kernel_builder("radix_sort_reorder")
+    let radix_c = pro_que.kernel_builder("radix_sort_prefixsum_b")
+      .arg(&b.histograms)
+      .arg_local::<u32>(WARP)
+      .arg(&b.counts)
+      .arg(&b.counts_b)
+      .arg(n_groups as u32)
+      .global_work_size(256) 
+      .build().unwrap();
+    let radix_d = pro_que.kernel_builder("radix_sort_prefixsum_c")
+      .arg(&b.histograms)
+      .arg_local::<u32>(WARP)
+      .arg(&b.counts)
+      .arg(&b.counts_b)
+      .arg(n_groups as u32)
+      .local_work_size(WARP)
+      .global_work_size((WARP*splinters)*256) 
+      .build().unwrap();
+    let radix_e = pro_que.kernel_builder("radix_sort_reorder")
       .arg(&b.handles)
       .arg(&b.handles_temp)
       .arg(&b.histograms)
       .arg(&b.counts)
-      .arg_local::<u32>(workgroup_size)
+      .arg_local::<u32>(WORKGROUP_SIZE)
       .arg(0u32)
-      .arg(n)
-      .local_work_size(workgroup_size)
+      .arg(n as u32)
+      .local_work_size(WORKGROUP_SIZE)
       .global_work_size(n_256) 
       .build().unwrap();
     
@@ -157,9 +185,9 @@ impl Kernels{
       compute_cell_keys: compute_cell_keys_kernel, 
       resort_pos_vel,
       resort_pos_vel_b,
-      radix_sort_histograms,
-      radix_sort_prefixsum,
-      radix_sort_reorder,
+      radix_sort: KernelGroup::new(
+        vec![radix_a, radix_b, radix_c, radix_d, radix_e]
+      ),
     }
   }
 
@@ -176,28 +204,27 @@ impl Kernels{
   pub fn sort_handles(&self, b: &GpuBuffers){
     for (i, shift) in (0u32..32).step_by(8).enumerate(){
       // set bitshift argument
-      self.radix_sort_histograms.set_arg(5, shift).unwrap();
-      self.radix_sort_reorder.set_arg(5, shift).unwrap();
+      self.radix_sort.group.first().unwrap().set_arg(5, shift).unwrap();
+      self.radix_sort.group.last().unwrap().set_arg(5, shift).unwrap();
       // swap input and output buffers
-      self.radix_sort_histograms.set_arg(0, 
+      self.radix_sort.group.first().unwrap().set_arg(0, 
         if i%2==0 {&b.handles} else {&b.handles_temp}
       ).unwrap();
-      self.radix_sort_histograms.set_arg(1, 
+      self.radix_sort.group.first().unwrap().set_arg(1, 
         if i%2==0 {&b.handles_temp} else {&b.handles}
       ).unwrap();
-      self.radix_sort_reorder.set_arg(0, 
+      self.radix_sort.group.last().unwrap().set_arg(0, 
         if i%2==0 {&b.handles} else {&b.handles_temp}
       ).unwrap();
-      self.radix_sort_reorder.set_arg(1, 
+      self.radix_sort.group.last().unwrap().set_arg(1, 
         if i%2==0 {&b.handles_temp} else {&b.handles}
       ).unwrap();
       // reset histograms
       b.counts.write(&b.counts_zeros).enq().unwrap();
+      b.counts_b.write(&b.counts_b_zeros).enq().unwrap();
       b.histograms.write(&b.hist_zeros).enq().unwrap();
       //enqueue kernels
-      unsafe {self.radix_sort_histograms.enq().unwrap();}
-      unsafe {self.radix_sort_prefixsum.enq().unwrap();}
-      unsafe {self.radix_sort_reorder.enq().unwrap();}
+      unsafe { self.radix_sort.enq().unwrap() }
     }
   }
 
