@@ -137,29 +137,38 @@ impl Kernels{
       .local_work_size(WORKGROUP_SIZE)
       .global_work_size(n_256) 
       .build().unwrap();
+    let n_groups = n_256/256;
+    let next_power_of_two = (2u32).pow((n_groups as f64).log2().ceil() as u32) as usize;
+    let radix_b_small = pro_que.kernel_builder("radix_sort_prefixsum_small")
+      .arg(&b.histograms)
+      .arg_local::<u32>(next_power_of_two)
+      .arg(&b.counts)
+      .arg(n_groups as u32)
+      .local_work_size(next_power_of_two)
+      .global_work_size(next_power_of_two*256) 
+      .build().unwrap();
     let radix_b = pro_que.kernel_builder("radix_sort_prefixsum_a")
       .arg(&b.histograms)
       .arg_local::<u32>(WARP)
       .arg(&b.counts)
       .arg(&b.counts_b)
       .arg(n_groups as u32)
+      .arg(splinters as u32)
       .local_work_size(WARP)
       .global_work_size((WARP*splinters)*256) 
       .build().unwrap();
     let radix_c = pro_que.kernel_builder("radix_sort_prefixsum_b")
       .arg(&b.histograms)
-      .arg_local::<u32>(WARP)
-      .arg(&b.counts)
       .arg(&b.counts_b)
       .arg(n_groups as u32)
+      .arg(splinters as u32)
       .global_work_size(256) 
       .build().unwrap();
     let radix_d = pro_que.kernel_builder("radix_sort_prefixsum_c")
       .arg(&b.histograms)
-      .arg_local::<u32>(WARP)
-      .arg(&b.counts)
       .arg(&b.counts_b)
       .arg(n_groups as u32)
+      .arg(splinters as u32)
       .local_work_size(WARP)
       .global_work_size((WARP*splinters)*256) 
       .build().unwrap();
@@ -185,9 +194,12 @@ impl Kernels{
       compute_cell_keys: compute_cell_keys_kernel, 
       resort_pos_vel,
       resort_pos_vel_b,
-      radix_sort: KernelGroup::new(
-        vec![radix_a, radix_b, radix_c, radix_d, radix_e]
-      ),
+      radix_sort: if n<262_144 {
+        KernelGroup::new(vec![radix_a, radix_b_small, radix_e])
+
+      } else {
+        KernelGroup::new(vec![radix_a, radix_b, radix_c, radix_d, radix_e])
+      },
     }
   }
 
