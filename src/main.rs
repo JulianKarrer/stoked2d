@@ -8,14 +8,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use atomic_float::{AtomicF32, AtomicF64};
 use datastructure::{GridCurve, AtomicGridCurve};
 use glam::DVec2;
+use gui::gui::StokedWindowHandler;
 use lazy_static::lazy_static;
 use egui_speedy2d::egui::mutex::RwLock;
 use simulation::{AtomicPressureEquation, AtomicSolver};
 use speedy2d::Window;
 use speedy2d::window::{WindowCreationOptions, WindowPosition};
 
-mod gui;
-use gui::StokedWindowHandler;
+mod gui{
+  pub mod gui;
+  pub mod history;
+}
 mod simulation;
 mod sph;
 mod datastructure;
@@ -25,10 +28,11 @@ mod gpu_version{
   pub mod buffers;
   pub mod kernels;
 }
-use crate::gui::History;
-
 // switch default allocator
 use mimalloc::MiMalloc;
+
+use crate::gui::history::History;
+
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 

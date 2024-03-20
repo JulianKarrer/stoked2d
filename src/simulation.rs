@@ -3,6 +3,8 @@ use std::fmt::Debug;
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
 use atomic_enum::atomic_enum;
 
+use self::utils::average_val;
+
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub fn run(){
@@ -85,7 +87,7 @@ fn isesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &B
     overwrite_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid, boundary);
     // refine the velocity prediction using the predicted pressure accelerations
     time_step_explicit_euler_one_quantity(&mut state.vel, &state.acc, dt);
-    if average_density(&state.den)/rho_zero-1.0 < max_rho_dev || REQUEST_RESTART.load(Relaxed) {
+    if average_val(&state.den)/rho_zero-1.0 < max_rho_dev || REQUEST_RESTART.load(Relaxed) {
       break;
     }
   }
@@ -172,12 +174,6 @@ fn predict_densities(den: &mut[f64], v_star: &[DVec2], pos: &[DVec2], grid: &Gri
         (v_star[i]).dot(kernel_derivative(&pos[i], &boundary.pos[*j]))
       ).sum::<f64>();
   })
-}
-
-/// Compute the average density value associated with the fluid particles at 
-/// their respective positions
-pub fn average_density(den: &[f64])->f64{
-  den.par_iter().sum::<f64>()/den.len() as f64
 }
 
 /// Update the pressures at each particle using densities

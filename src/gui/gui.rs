@@ -1,18 +1,16 @@
 use std::sync::Mutex;
 
 use crate::*;
-use crate::datastructure::Grid;
-use crate::simulation::{Attributes, PressureEquation, Solver, average_density};
+use crate::simulation::{PressureEquation, Solver};
 use atomic_enum::atomic_enum;
 use egui_speedy2d::egui::{self, RichText, ImageButton, Vec2, Ui, TextureId};  
 use egui::FontId;
 use egui::plot::{Line, Plot, PlotPoints};
-use ocl::prm::{Float, Float2};
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use speedy2d::shape::Rectangle;
 use speedy2d::window::MouseScrollDistance;
 use speedy2d::{window::{WindowHelper, self}, Graphics2D, color::Color, dimen::Vector2};
 use atomic::Atomic;
+
 
 // GUI RELATED SETTINGS
 const FONT_HEADING_SIZE:f32 = 25.0;
@@ -24,7 +22,7 @@ const ZOOM_SPEED:f32 = 1.5;
 static DRAGGING:AtomicBool = AtomicBool::new(false);
 const BOUNDARY_THCKNESS:f64 = 0.05;
 static GUI_FPS:AtomicF64 = AtomicF64::new(60.0);
-static VISUALIZED_FEATURE:AtomicVisualizedFeature = AtomicVisualizedFeature::new(VisualizedFeature::Density);
+static VISUALIZED_FEATURE:AtomicVisualizedFeature = AtomicVisualizedFeature::new(VisualizedFeature::Velocity);
 static COLOUR_SCHEME:AtomicColourScheme = AtomicColourScheme::new(ColourScheme::Spectral);
 
 lazy_static! {
@@ -54,6 +52,7 @@ enum PlaybackState{
 #[atomic_enum]
 enum VisualizedFeature {
   Density,
+  Velocity,
   SpaceFillingCurve,
 }
 
@@ -64,75 +63,6 @@ enum ColourScheme {
   Spectral,
   Rainbow,
   Virdis,
-}
-
-
-/// Represents the features of the simulation that are stored for visualization
-#[derive(Default)]
-pub struct HistoryTimestep{
-  pub pos: Vec<[f64; 2]>,
-  pub current_t: f64,
-  pub densities: Vec<f64>,
-  pub grid_handle_index: Vec<u32>
-}
-
-pub struct History{
-  pub steps: Vec<HistoryTimestep>,
-  plot_density: Vec<[f64;2]>
-}
-
-impl Default for History{
-  fn default() -> Self {
-    Self { steps: vec![HistoryTimestep::default()], plot_density: vec![[0.0, M/(H*H)]] }
-  }
-}
-
-impl History{
-  pub fn reset_and_add(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
-    self.reset();
-    self.add(state, grid, current_t);
-  }
-
-  pub fn add_step(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
-    self.add(state, grid, current_t)
-  }
-
-  fn reset(&mut self){
-    self.steps.clear();
-    self.steps.shrink_to_fit();
-    self.plot_density.clear();
-    self.plot_density.shrink_to_fit();
-  }
-
-  pub fn gpu_reset_and_add(&mut self, pos:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64){
-    self.reset();
-    self.gpu_add_step(pos, handle_indices, den, current_t);
-  }
-
-  pub fn gpu_add_step(&mut self, pos:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64){
-    self.plot_density.push([current_t, 
-      den.par_iter()
-        .map(|f|f[0])
-        .sum::<f32>() as f64/den.len() as f64]);
-    self.steps.push(HistoryTimestep{ 
-      pos: pos.par_iter().map(|p| [p[0] as f64, p[1] as f64]).collect(), 
-      current_t, 
-      densities: den.par_iter().map(|d| d[0] as f64).collect(), 
-      grid_handle_index: handle_indices.to_vec(),
-    })
-  }
-
-  fn add(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
-    let densities = state.den.clone();
-    let average_density = average_density(&densities);
-    self.plot_density.push([current_t, average_density]);
-    self.steps.push(HistoryTimestep{ 
-      pos: state.pos.par_iter().map(|p|p.to_array()).collect(), 
-      current_t, 
-      densities, 
-      grid_handle_index: grid.handles.par_iter().map(|x| x.index as u32).collect(),
-    })
-  }
 }
 
 /// Performs a camera transformation from a given point in world-space to drawing space
@@ -236,6 +166,9 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
           },
           VisualizedFeature::SpaceFillingCurve => {
             history_timestep.grid_handle_index[i] as f64 / history_timestep.pos.len() as f64
+          },
+          VisualizedFeature::Velocity => {
+            history_timestep.velocities[i]
           },
         };
         let colour = gradient.at((c*2.0-1.0)*gradient_flipper*0.5+0.5);
@@ -343,6 +276,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         .selected_text(format!("{:?}", feature))
         .show_ui(ui, |ui| {
           ui.selectable_value(&mut feature, VisualizedFeature::Density, "Density");
+          ui.selectable_value(&mut feature, VisualizedFeature::Velocity, "Velocity");
           ui.selectable_value(&mut feature, VisualizedFeature::SpaceFillingCurve, "Space Filling Curve");
         }
       );

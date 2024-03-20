@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use ocl::{prm::{Float, Float2, Uint2}, ProQue};
 use rayon::iter::{IntoParallelRefIterator,  ParallelIterator};
-use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::SIMULATION_TOGGLE, simulation::update_fps, *};
+use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::gui::SIMULATION_TOGGLE, simulation::update_fps, *};
 
 
 pub fn run(){
@@ -32,10 +32,14 @@ pub fn run(){
   // build relevant kernels
   let k = Kernels::new(&b, pro_que, pos.len() as u32, dt);
   
+  // intitial history timestep for visualization
+  let vmax = update_dt_gpu(&vel, &mut current_t, &mut dt);
+  let handle_indices = handles.par_iter().map(|h|h[0]).collect::<Vec<u32>>();
+  {  HISTORY.write().gpu_reset_and_add(&pos, &vel, &handle_indices, &den, current_t.into(), vmax); }
+
   // MAIN LOOP
   let mut last_update_time = timestamp();
   let mut since_resort = 0;
-  {  HISTORY.write().gpu_reset_and_add(&pos, &handles.par_iter().map(|h|h[0]).collect::<Vec<u32>>(), &den, current_t.into()); }
   while !REQUEST_RESTART.fetch_and(false, Relaxed) {
     // wait if requested
     while *SIMULATION_TOGGLE.read() { thread::sleep(Duration::from_millis(100)); }
@@ -69,7 +73,7 @@ pub fn run(){
 
     // integrate accelerations to position updates
     b.vel.read(&mut vel).enq().unwrap();
-    dt = update_dt_gpu(&vel, &mut current_t);
+    let vmax = update_dt_gpu(&vel, &mut current_t, &mut dt);
     k.euler_cromer.set_arg(3, dt).unwrap();
     unsafe { k.euler_cromer.enq().unwrap(); }
     unsafe { k.boundary.enq().unwrap(); }
@@ -79,8 +83,9 @@ pub fn run(){
     if current_t - last_gui_update_t > 0.017 {
       b.den.read(&mut den).enq().unwrap();
       b.handles.read(&mut handles).enq().unwrap();
-        last_gui_update_t = current_t;
-      {  HISTORY.write().gpu_add_step(&pos, &handles.par_iter().map(|h|h[1]).collect::<Vec<u32>>(), &den, current_t.into()); }
+      last_gui_update_t = current_t;
+      let handle_indices = handles.par_iter().map(|h|h[1]).collect::<Vec<u32>>();
+      {  HISTORY.write().gpu_add_step(&pos, &vel, &handle_indices, &den, current_t.into(), vmax); }
     }
     
   }
@@ -88,430 +93,82 @@ pub fn run(){
 
 
 /// Calculate the length of a Float2
-fn len_float2(x:&Float2)->f64{
-  let xc = x[0] as f64;
-  let yc = x[1] as f64;
+pub fn len_float2(x:&Float2)->f64{
+  let xc: f64 = x[0] as f64;
+  let yc: f64 = x[1] as f64;
   ((xc*xc)+(yc*yc)).sqrt()
 }
 
 /// Update the current time step size in accordance with the CFL condition,
 /// respecting the atomics for initial and maximum time step sizes and accumulate into the current total time `current_t`
-fn update_dt_gpu(vel: &[Float2], current_t: &mut f32)->f32{
+fn update_dt_gpu(vel: &[Float2], current_t: &mut f32, dt: &mut f32)->f64{
   let v_max = vel.par_iter().map(len_float2).reduce_with(|a,b| a.max(b)).unwrap();
-  let mut dt = ((LAMBDA.load(Relaxed) * H / v_max)
+  let mut new_dt = ((LAMBDA.load(Relaxed) * H / v_max)
     .min(MAX_DT.load(Relaxed))) as f32;
-  if v_max < VELOCITY_EPSILON || !dt.is_normal() {dt = INITIAL_DT.load(Relaxed) as f32}
-  *current_t += dt;
-  dt
+  if v_max < VELOCITY_EPSILON || !new_dt.is_normal() {new_dt = INITIAL_DT.load(Relaxed) as f32}
+  *current_t += new_dt;
+  *dt = new_dt;
+  v_max.max(VELOCITY_EPSILON)
 }
 
 
 #[cfg(test)]
 mod tests {
-  use ocl::{Buffer, MemFlags};
+  extern crate test;
+  use super::*;
   use rand::Rng;
   use test::Bencher;
-  use crate::utils::ceil_div;
-
-use super::*;
-  extern crate test;
-  fn rand_uint()->u32{rand::thread_rng().gen_range(u32::MIN..u32::MAX)}
+  
 
   #[test]
-  fn repeated_gpu_sorting_radix(){
-    for _ in 0..100{
-      gpu_sorting_radix();
+  fn gpu_sorting_radix_small(){
+    for _ in 0..20{ 
+      gpu_sorting_radix(rand::thread_rng().gen_range(2..262_144)) 
     }
   }
 
   #[test]
-  fn gpu_sorting_radix(){
-    let src = include_str!("kernels.cl");
-  
-    const WORKGROUP_SIZE: usize = 256; 
-    let n: usize = rand::thread_rng().gen_range(2..5_000_000); 
-    println!("{}",n);
-    let n_256 = ceil_div(n, 256);
-
-    let n_groups = n_256/256;
-    let warp = 256;
-    let splinters = 1 + ((n_groups - 1) / warp);
-  
-    let initial_state = (0..n_256)
-      // .map(|i| Uint2::new((n-i-1) as u32, i as u32))
-      .map(|i| Uint2::new(rand_uint(), i as u32))
-      .collect::<Vec<Uint2>>();
-  
-    let pro_que = ProQue::builder()
-      .src(src)
-      .dims(n_256)
-      .build().unwrap();
-
-
-    let input = pro_que.create_buffer::<Uint2>().unwrap();
-    let output = pro_que.create_buffer::<Uint2>().unwrap();
-    let histo_zeros  =  vec![0u32; n_256];
-    let histograms = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(n_256)
-      .fill_val(0u32)
-      .build().unwrap();
-    let count_zeros = vec![0u32; 256];
-    let counts = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(256)
-      .fill_val(0u32)
-      .build().unwrap();
-    let count_b_zeros = vec![0u32; splinters*256];
-    let counts_b = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(splinters*256)
-      .fill_val(0u32)
-      .build().unwrap();
-  
-    let radix_a = pro_que.kernel_builder("radix_sort_histograms")
-      .arg(&input)
-      .arg(&output)
-      .arg(&histograms)
-      .arg(&counts)
-      .arg_local::<u32>(WORKGROUP_SIZE)
-      .arg(0u32)
-      .arg(n as u32)
-      .local_work_size(WORKGROUP_SIZE)
-      .global_work_size(n_256) 
-      .build().unwrap();
-    let radix_b = pro_que.kernel_builder("radix_sort_prefixsum_a")
-      .arg(&histograms)
-      .arg_local::<u32>(warp)
-      .arg(&counts)
-      .arg(&counts_b)
-      .arg(n_groups as u32)
-      .arg(splinters as u32)
-      .local_work_size(warp)
-      .global_work_size((warp*splinters)*256) 
-      .build().unwrap();
-    let radix_c = pro_que.kernel_builder("radix_sort_prefixsum_b")
-      .arg(&histograms)
-      .arg(&counts_b)
-      .arg(n_groups as u32)
-      .arg(splinters as u32)
-      .global_work_size(256) 
-      .build().unwrap();
-    let radix_d = pro_que.kernel_builder("radix_sort_prefixsum_c")
-      .arg(&histograms)
-      .arg(&counts_b)
-      .arg(n_groups as u32)
-      .arg(splinters as u32)
-      .local_work_size(warp)
-      .global_work_size((warp*splinters)*256) 
-      .build().unwrap();
-    let radix_e = pro_que.kernel_builder("radix_sort_reorder")
-      .arg(&input)
-      .arg(&output)
-      .arg(&histograms)
-      .arg(&counts)
-      .arg_local::<u32>(WORKGROUP_SIZE)
-      .arg(0u32)
-      .arg(n as u32)
-      .local_work_size(WORKGROUP_SIZE)
-      .global_work_size(n_256) 
-      .build().unwrap();
-
-    input.write(&initial_state).enq().unwrap();
-    output.write(&initial_state).enq().unwrap();
-  
-    // execute the kernel passes
-    for (i, shift) in (0u32..32).step_by(8).enumerate(){
-      // set bitshift argument
-      radix_a.set_arg(5, shift).unwrap();
-      radix_e.set_arg(5, shift).unwrap();
-      // swap input and output buffers
-      radix_a.set_arg(0, if i%2==0 {&input} else {&output}).unwrap();
-      radix_a.set_arg(1, if i%2==0 {&output} else {&input}).unwrap();
-      radix_e.set_arg(0, if i%2==0 {&input} else {&output}).unwrap();
-      radix_e.set_arg(1, if i%2==0 {&output} else {&input}).unwrap();
-      // reset histograms
-      counts_b.write(&count_b_zeros).enq().unwrap();
-      counts.write(&count_zeros).enq().unwrap();
-      histograms.write(&histo_zeros).enq().unwrap();
-      //enqueue kernels
-      unsafe {radix_a.enq().unwrap();}
-      unsafe {radix_b.enq().unwrap();}
-      unsafe {radix_c.enq().unwrap();}
-      unsafe {radix_d.enq().unwrap();}
-      unsafe {radix_e.enq().unwrap();}
+  fn gpu_sorting_radix_big(){
+    for _ in 0..10{ 
+      gpu_sorting_radix(rand::thread_rng().gen_range(262_144..1_000_000)) 
     }
-   
-    // show the result
-    let mut res_in = initial_state.clone();
-    let mut res_out = initial_state.clone();
-    let mut res_hist = vec![0;n_256];
-    let mut res_counts = vec![0;256];
-    input.read(&mut res_in).enq().unwrap();
-    output.read(&mut res_out).enq().unwrap();
-    histograms.read(&mut res_hist).enq().unwrap();
-    counts.read(&mut res_counts).enq().unwrap();
-  
-    let assert_all_true:Vec<bool> = (1..n).map(|i|res_in[i][0]>= res_in[i-1][0]).collect();
-    assert!(assert_all_true.iter().all(|x|*x),
-    "in\n{:?}\n\nout\n{:?}\n\nhist\n{:?}\n\ncounts\n{:?}\n\nn:{}", 
-    res_in, res_out, res_hist,res_counts,n
-    );
+  }
+
+  fn rand_uint()->u32{rand::thread_rng().gen_range(u32::MIN..u32::MAX)}
+  fn gpu_sorting_radix(n:usize){
+    let pro_que: ProQue = ProQue::builder()
+      .src(include_str!("kernels.cl")).dims(n).build().unwrap();
+    let b: GpuBuffers = GpuBuffers::new(&pro_que, n);
+    let mut handles:Vec<Uint2> = (0..n).map(|i| 
+      Uint2::new(rand_uint(), i as u32)
+    ).collect();
+    b.handles.write(&handles).enq().unwrap();
+
+    let k = Kernels::new(&b, pro_que, n as u32, 0.);
+    k.sort_handles(&b);
+    b.handles.read(&mut handles).enq().unwrap();
+    handles.iter().enumerate().skip(1).for_each(|(i,h)| 
+      assert!(h[0]>=handles[i-1][0])
+    )
   }
 
   #[bench]
   fn gpu_radix_bench(b: &mut Bencher){
-    let src = include_str!("kernels.cl");
-  
-    const WORKGROUP_SIZE: usize = 256; 
-    let n: usize = 30_000;//rand::thread_rng().gen_range(2..5_000_000); 
-    let n_256 = ceil_div(n, 256);
-
-    let n_groups = n_256/256;
-    let warp = 256;
-    let splinters = 1 + ((n_groups - 1) / warp);
-  
-    let initial_state = (0..n_256)
-      // .map(|i| Uint2::new((n-i-1) as u32, i as u32))
-      .map(|i| Uint2::new(rand_uint(), i as u32))
-      .collect::<Vec<Uint2>>();
-  
-    let pro_que = ProQue::builder()
-      .src(src)
-      .dims(n_256)
-      .build().unwrap();
-
-
-    let input = pro_que.create_buffer::<Uint2>().unwrap();
-    let output = pro_que.create_buffer::<Uint2>().unwrap();
-    let histo_zeros  =  vec![0u32; n_256];
-    let histograms = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(n_256)
-      .fill_val(0u32)
-      .build().unwrap();
-    let count_zeros = vec![0u32; 256];
-    let counts = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(256)
-      .fill_val(0u32)
-      .build().unwrap();
-    let count_b_zeros = vec![0u32; splinters*256];
-    let counts_b = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(splinters*256)
-      .fill_val(0u32)
-      .build().unwrap();
-  
-      let radix_a = pro_que.kernel_builder("radix_sort_histograms")
-      .arg(&input)
-      .arg(&output)
-      .arg(&histograms)
-      .arg(&counts)
-      .arg_local::<u32>(WORKGROUP_SIZE)
-      .arg(0u32)
-      .arg(n as u32)
-      .local_work_size(WORKGROUP_SIZE)
-      .global_work_size(n_256) 
-      .build().unwrap();
-    let radix_b = pro_que.kernel_builder("radix_sort_prefixsum_a")
-      .arg(&histograms)
-      .arg_local::<u32>(warp)
-      .arg(&counts)
-      .arg(&counts_b)
-      .arg(n_groups as u32)
-      .arg(splinters as u32)
-      .local_work_size(warp)
-      .global_work_size((warp*splinters)*256) 
-      .build().unwrap();
-    let radix_c = pro_que.kernel_builder("radix_sort_prefixsum_b")
-      .arg(&histograms)
-      .arg(&counts_b)
-      .arg(n_groups as u32)
-      .arg(splinters as u32)
-      .global_work_size(256) 
-      .build().unwrap();
-    let radix_d = pro_que.kernel_builder("radix_sort_prefixsum_c")
-      .arg(&histograms)
-      .arg(&counts_b)
-      .arg(n_groups as u32)
-      .arg(splinters as u32)
-      .local_work_size(warp)
-      .global_work_size((warp*splinters)*256) 
-      .build().unwrap();
-    let radix_e = pro_que.kernel_builder("radix_sort_reorder")
-      .arg(&input)
-      .arg(&output)
-      .arg(&histograms)
-      .arg(&counts)
-      .arg_local::<u32>(WORKGROUP_SIZE)
-      .arg(0u32)
-      .arg(n as u32)
-      .local_work_size(WORKGROUP_SIZE)
-      .global_work_size(n_256) 
-      .build().unwrap();
+    let n = 30_000;
+    let pro_que: ProQue = ProQue::builder()
+      .src(include_str!("kernels.cl")).dims(n).build().unwrap();
+    let buffers: GpuBuffers = GpuBuffers::new(&pro_que, n);
+    let kernels = Kernels::new(&buffers, pro_que, n as u32, 0.);
+    let mut handles:Vec<Uint2> = (0..n).map(|i| 
+      Uint2::new(rand_uint(), i as u32)
+    ).collect();
 
     b.iter(||{
-      input.write(&initial_state).enq().unwrap();
-      output.write(&initial_state).enq().unwrap();
-    
-      // execute the kernel passes
-      for (i, shift) in (0u32..32).step_by(8).enumerate(){
-        // set bitshift argument
-        radix_a.set_arg(5, shift).unwrap();
-        radix_e.set_arg(5, shift).unwrap();
-        // swap input and output buffers
-        radix_a.set_arg(0, if i%2==0 {&input} else {&output}).unwrap();
-        radix_a.set_arg(1, if i%2==0 {&output} else {&input}).unwrap();
-        radix_e.set_arg(0, if i%2==0 {&input} else {&output}).unwrap();
-        radix_e.set_arg(1, if i%2==0 {&output} else {&input}).unwrap();
-        // reset histograms
-        counts_b.write(&count_b_zeros).enq().unwrap();
-        counts.write(&count_zeros).enq().unwrap();
-        histograms.write(&histo_zeros).enq().unwrap();
-        //enqueue kernels
-        unsafe {radix_a.enq().unwrap();}
-        unsafe {radix_b.enq().unwrap();}
-        unsafe {radix_c.enq().unwrap();}
-        unsafe {radix_d.enq().unwrap();}
-        unsafe {radix_e.enq().unwrap();}
-      }
+      buffers.handles.write(&handles).enq().unwrap();
+      kernels.sort_handles(&buffers);
     });
    
-    // show the result
-    let mut res_in = initial_state.clone();
-    let mut res_out = initial_state.clone();
-    let mut res_hist = vec![0;n_256];
-    let mut res_counts = vec![0;256];
-    input.read(&mut res_in).enq().unwrap();
-    output.read(&mut res_out).enq().unwrap();
-    histograms.read(&mut res_hist).enq().unwrap();
-    counts.read(&mut res_counts).enq().unwrap();
-  
-  }
-
-
-
-  #[bench]
-  fn gpu_radix_bench_small(b: &mut Bencher){
-    let src = include_str!("kernels.cl");
-  
-    const WORKGROUP_SIZE: usize = 256; 
-    let n: usize = 30_000;//rand::thread_rng().gen_range(2..5_000_000); 
-    let n_256 = ceil_div(n, 256);
-
-    let n_groups = n_256/256;
-    let warp = 256;
-    let splinters = 1 + ((n_groups - 1) / warp);
-  
-    let initial_state = (0..n_256)
-      // .map(|i| Uint2::new((n-i-1) as u32, i as u32))
-      .map(|i| Uint2::new(rand_uint(), i as u32))
-      .collect::<Vec<Uint2>>();
-  
-    let pro_que = ProQue::builder()
-      .src(src)
-      .dims(n_256)
-      .build().unwrap();
-
-
-    let input = pro_que.create_buffer::<Uint2>().unwrap();
-    let output = pro_que.create_buffer::<Uint2>().unwrap();
-    let histo_zeros  =  vec![0u32; n_256];
-    let histograms = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(n_256)
-      .fill_val(0u32)
-      .build().unwrap();
-    let count_zeros = vec![0u32; 256];
-    let counts = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(256)
-      .fill_val(0u32)
-      .build().unwrap();
-    let count_b_zeros = vec![0u32; splinters*256];
-    let counts_b = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(splinters*256)
-      .fill_val(0u32)
-      .build().unwrap();
-  
-      let radix_a = pro_que.kernel_builder("radix_sort_histograms")
-      .arg(&input)
-      .arg(&output)
-      .arg(&histograms)
-      .arg(&counts)
-      .arg_local::<u32>(WORKGROUP_SIZE)
-      .arg(0u32)
-      .arg(n as u32)
-      .local_work_size(WORKGROUP_SIZE)
-      .global_work_size(n_256) 
-      .build().unwrap();
-    let n_groups = n_256/256;
-    let next_power_of_two = (2u32).pow((n_groups as f64).log2().ceil() as u32) as usize;
-    let radix_b_small = pro_que.kernel_builder("radix_sort_prefixsum_small")
-      .arg(&histograms)
-      .arg_local::<u32>(next_power_of_two)
-      .arg(&counts)
-      .arg(n_groups as u32)
-      .local_work_size(next_power_of_two)
-      .global_work_size(next_power_of_two*256) 
-      .build().unwrap();
-    let radix_e = pro_que.kernel_builder("radix_sort_reorder")
-      .arg(&input)
-      .arg(&output)
-      .arg(&histograms)
-      .arg(&counts)
-      .arg_local::<u32>(WORKGROUP_SIZE)
-      .arg(0u32)
-      .arg(n as u32)
-      .local_work_size(WORKGROUP_SIZE)
-      .global_work_size(n_256) 
-      .build().unwrap();
-
-    b.iter(||{
-      input.write(&initial_state).enq().unwrap();
-      output.write(&initial_state).enq().unwrap();
-    
-      // execute the kernel passes
-      for (i, shift) in (0u32..32).step_by(8).enumerate(){
-        // set bitshift argument
-        radix_a.set_arg(5, shift).unwrap();
-        radix_e.set_arg(5, shift).unwrap();
-        // swap input and output buffers
-        radix_a.set_arg(0, if i%2==0 {&input} else {&output}).unwrap();
-        radix_a.set_arg(1, if i%2==0 {&output} else {&input}).unwrap();
-        radix_e.set_arg(0, if i%2==0 {&input} else {&output}).unwrap();
-        radix_e.set_arg(1, if i%2==0 {&output} else {&input}).unwrap();
-        // reset histograms
-        counts.write(&count_zeros).enq().unwrap();
-        histograms.write(&histo_zeros).enq().unwrap();
-        //enqueue kernels
-        unsafe {radix_a.enq().unwrap();}
-        unsafe {radix_b_small.enq().unwrap();}
-        unsafe {radix_e.enq().unwrap();}
-      }
-    });
-   
-    // show the result
-    let mut res_in = initial_state.clone();
-    let mut res_out = initial_state.clone();
-    let mut res_hist = vec![0;n_256];
-    let mut res_counts = vec![0;256];
-    input.read(&mut res_in).enq().unwrap();
-    output.read(&mut res_out).enq().unwrap();
-    histograms.read(&mut res_hist).enq().unwrap();
-    counts.read(&mut res_counts).enq().unwrap();
-  
+    buffers.handles.read(&mut handles).enq().unwrap();
   }
 
 }

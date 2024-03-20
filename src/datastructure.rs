@@ -1,4 +1,3 @@
-use std::f64::MAX;
 
 use crate::*;
 use atomic_enum::atomic_enum;
@@ -157,7 +156,7 @@ mod tests {
   extern crate test;
   use test::Bencher;
   use rand::{thread_rng, Rng};
-  use rayon::prelude::{ParallelIterator, ParallelBridge};
+  use rayon::prelude::ParallelBridge;
 
   const REPETITIONS:usize = 10;
   const TEST_RUNS:usize = 1000;

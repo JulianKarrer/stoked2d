@@ -437,6 +437,7 @@ __kernel void radix_sort_prefixsum_b(
     }
   }
 }
+
 // assumes local worksize is n_groups
 __kernel void radix_sort_prefixsum_c(
   __global uint* global_hist, // must be 256 entries per workgroup
