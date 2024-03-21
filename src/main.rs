@@ -44,7 +44,6 @@ const VELOCITY_EPSILON:f64 = 0.00001;
 // SIMULATION RELATED CONSTANTS AND ATOMICS
 lazy_static! {
   pub static ref THREADS:usize = available_parallelism().unwrap().get();
-  pub static ref REQUEST_RESTART:Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
   static ref BOUNDARY:[DVec2;2] = [DVec2::new(-10.0,-10.0), DVec2::new(10.0,10.0)];
   static ref FLUID:[DVec2;2] = [DVec2::new(-10.0+H*3.0,-10.0+H*2.0), DVec2::new(0.0,-5.0)];
   static ref BOUNDARY_PARTICLES:Arc<RwLock<Vec<DVec2>>> = Arc::new(RwLock::new(vec![]));
@@ -69,7 +68,7 @@ const KERNEL_SUPPORT:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA:AtomicF64 = AtomicF64::new(0.3);
 static MAX_DT:AtomicF64 = AtomicF64::new(0.001);
-static INITIAL_DT:AtomicF64 = AtomicF64::new(0.02);
+static INITIAL_DT:AtomicF64 = AtomicF64::new(0.00001);
 /// Mass of a particle
 const M:f64 = H*H;
 /// Rest density of the fluid

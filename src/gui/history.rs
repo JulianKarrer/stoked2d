@@ -63,12 +63,12 @@ impl History{
 
 // GPU implementations
 impl History{
-  pub fn gpu_reset_and_add(&mut self, pos:&[Float2], vel:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64, vmax:f64){
+  pub fn gpu_reset_and_add(&mut self, pos:&[Float2], vel:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64){
     self.reset();
-    self.gpu_add_step(pos, vel, handle_indices, den, current_t, vmax);
+    self.gpu_add_step(pos, vel, handle_indices, den, current_t);
   }
 
-  pub fn gpu_add_step(&mut self, pos:&[Float2], vel:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64, vmax:f64){
+  pub fn gpu_add_step(&mut self, pos:&[Float2], vel:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64){
     self.plot_density.push([current_t, 
       den.par_iter()
         .map(|f|f[0])
@@ -77,7 +77,7 @@ impl History{
       pos: pos.par_iter().map(|p| [p[0] as f64, p[1] as f64]).collect(), 
       current_t, 
       densities: den.par_iter().map(|d| d[0] as f64).collect(), 
-      velocities: vel.par_iter().map(|v| len_float2(v)/vmax).collect(),
+      velocities: vel.par_iter().map(|v| len_float2(v)).collect(),
       grid_handle_index: handle_indices.to_vec(),
     })
   }

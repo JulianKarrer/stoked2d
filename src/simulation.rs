@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
 use atomic_enum::atomic_enum;
 
-use self::utils::average_val;
+use self::{gui::gui::REQUEST_RESTART, utils::average_val};
 
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -20,7 +20,7 @@ pub fn run(){
   update_densities(&state.pos, &mut state.den, &grid, &boundary);
   {  HISTORY.write().reset_and_add(&state, &grid, current_t); }
   let mut last_update_time = timestamp();
-  while !REQUEST_RESTART.fetch_and(false, Relaxed) {
+  while !*REQUEST_RESTART.read() {
     // update the datastructure and potentially resort particle attributes
     if since_resort > {*RESORT_ATTRIBUTES_EVERY_N.read()} {
       state.resort(&grid);
@@ -36,6 +36,7 @@ pub fn run(){
     update_fps(&mut last_update_time);
     {  HISTORY.write().add_step(&state, &grid, current_t); }
   }
+  *REQUEST_RESTART.write() = false
 }
 
 
@@ -87,7 +88,7 @@ fn isesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &B
     overwrite_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid, boundary);
     // refine the velocity prediction using the predicted pressure accelerations
     time_step_explicit_euler_one_quantity(&mut state.vel, &state.acc, dt);
-    if average_val(&state.den)/rho_zero-1.0 < max_rho_dev || REQUEST_RESTART.load(Relaxed) {
+    if average_val(&state.den)/rho_zero-1.0 < max_rho_dev || *REQUEST_RESTART.read() {
       break;
     }
   }

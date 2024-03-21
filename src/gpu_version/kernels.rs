@@ -1,6 +1,6 @@
 use ocl::{prm::Float2, Kernel, ProQue};
 
-use crate::{sph::KERNEL_CUBIC_NORMALIZE, utils::ceil_div, BOUNDARY, GRAVITY, H, K, KERNEL_SUPPORT, M, NU, RHO_ZERO, WARP, WORKGROUP_SIZE};
+use crate::{sph::KERNEL_CUBIC_NORMALIZE, utils::next_multiple, BOUNDARY, GRAVITY, H, INITIAL_DT, K, KERNEL_SUPPORT, LAMBDA, M, MAX_DT, NU, RHO_ZERO, VELOCITY_EPSILON, WARP, WORKGROUP_SIZE};
 use std::sync::atomic::Ordering::Relaxed;
 use super::buffers::GpuBuffers;
 
@@ -28,18 +28,20 @@ pub struct Kernels{
   pub resort_pos_vel:Kernel,
   pub resort_pos_vel_b:Kernel,
   radix_sort:KernelGroup,
+  reduce_min_pos:Kernel,
+  reduce_min_vel_compute_dt:KernelGroup,
 }
 
 impl Kernels{
   /// Initialize a new set of kernel functions, compiling all
   /// relevant programs and setting their parameters using constants,
   /// atomics and the corresponsing buffers in a `GpuBuffer`.
-  pub fn new(b: &GpuBuffers, pro_que:ProQue, n:u32, dt:f32)->Self{
+  pub fn new(b: &GpuBuffers, pro_que:ProQue, n:u32)->Self{
     let euler_cromer_kernel = pro_que.kernel_builder("eulercromerstep")
       .arg(&b.pos)
       .arg(&b.vel)
       .arg(&b.acc)
-      .arg(dt)
+      .arg(&b.dt)
       .build().unwrap();
     let boundary_kernel = pro_que.kernel_builder("enforce_boundary")
       .arg(&b.pos)
@@ -88,11 +90,8 @@ impl Kernels{
       .arg(H as f32)
       .arg(n)
       .build().unwrap();
-    let min_extend = Float2::new(
-      (BOUNDARY[0][0] - KERNEL_SUPPORT) as f32, (BOUNDARY[0][1]  - KERNEL_SUPPORT) as f32, 
-    );
     let compute_neighbours_kernel = pro_que.kernel_builder("compute_neighbours")
-      .arg(&min_extend)
+      .arg(&b.pos_min)
       .arg(&b.pos)
       .arg(&b.handles)
       .arg(&b.neighbours)
@@ -100,7 +99,7 @@ impl Kernels{
       .arg(n)
       .build().unwrap();
     let compute_cell_keys_kernel = pro_que.kernel_builder("compute_cell_keys")
-      .arg(&min_extend)
+      .arg(&b.pos_min)
       .arg(KERNEL_SUPPORT as f32)
       .arg(&b.pos)
       .arg(&b.handles)
@@ -122,7 +121,7 @@ impl Kernels{
       .arg(n)
       .build().unwrap();
 
-    let n_256 = ceil_div(n as usize, WORKGROUP_SIZE);
+    let n_256 = next_multiple(n as usize, WORKGROUP_SIZE);
     let n_groups = n_256/256;
     let splinters = 1 + ((n_groups - 1) / WARP);
   
@@ -183,7 +182,34 @@ impl Kernels{
       .local_work_size(WORKGROUP_SIZE)
       .global_work_size(n_256) 
       .build().unwrap();
-    
+    let reduce_min_pos = pro_que.kernel_builder("reduce_min")
+      .arg(&b.pos)
+      .arg(&b.pos_min)
+      .arg_local::<u32>(WORKGROUP_SIZE)
+      .arg(n as u32)
+      .arg(1u32)
+      .local_work_size(WORKGROUP_SIZE)
+      .build().unwrap();
+    let reduce_max_vel = pro_que.kernel_builder("reduce_max_magnitude")
+      .arg(&b.vel)
+      .arg(&b.vel_max)
+      .arg_local::<u32>(WORKGROUP_SIZE)
+      .arg(n as u32)
+      .arg(1u32)
+      .local_work_size(WORKGROUP_SIZE)
+      .build().unwrap();
+    let update_dt = pro_que.kernel_builder("update_dt")
+      .arg(&b.dt)
+      .arg(&b.current_t)
+      .arg(&b.vel_max)
+      .arg(LAMBDA.load(Relaxed) as f32)
+      .arg(MAX_DT.load(Relaxed) as f32)
+      .arg(INITIAL_DT.load(Relaxed) as f32)
+      .arg(VELOCITY_EPSILON as f32)
+      .arg(H as f32)
+      .global_work_size(1)
+      .build().unwrap();
+
     Self { 
       euler_cromer: euler_cromer_kernel, 
       boundary: boundary_kernel, 
@@ -200,6 +226,8 @@ impl Kernels{
       } else {
         KernelGroup::new(vec![radix_a, radix_b, radix_c, radix_d, radix_e])
       },
+      reduce_min_pos: reduce_min_pos,
+      reduce_min_vel_compute_dt: KernelGroup::new(vec![reduce_max_vel, update_dt]),
     }
   }
 
@@ -211,6 +239,9 @@ impl Kernels{
     self.gravity_viscosity.set_arg(0, NU.load(Relaxed) as f32).unwrap();
     self.gravity_viscosity.set_arg(1, GRAVITY.load(Relaxed) as f32).unwrap();
     self.pressure_acceleration.set_arg(0, RHO_ZERO.load(Relaxed) as f32).unwrap();
+    self.reduce_min_vel_compute_dt.group[1].set_arg(3, LAMBDA.load(Relaxed) as f32).unwrap();
+    self.reduce_min_vel_compute_dt.group[1].set_arg(4, MAX_DT.load(Relaxed) as f32).unwrap();
+    self.reduce_min_vel_compute_dt.group[1].set_arg(5, INITIAL_DT.load(Relaxed) as f32).unwrap();
   }
 
   pub fn sort_handles(&self, b: &GpuBuffers){
@@ -240,4 +271,35 @@ impl Kernels{
     }
   }
 
+  /// Calculate the minimum position in `b.pos`, saving the result to `b.pos_min[0]`
+  pub fn reduce_pos_min(&self, b: &GpuBuffers){
+    let mut cur_size = b.n;
+    self.reduce_min_pos.set_arg(4, 1u32).unwrap();
+    while cur_size > 1 {
+      self.reduce_min_pos.set_arg(3, cur_size as u32).unwrap();
+      unsafe { self.reduce_min_pos.cmd()
+        .global_work_size(next_multiple(cur_size, WORKGROUP_SIZE))
+        .enq().unwrap() }
+        self.reduce_min_pos.set_arg(4, 0u32).unwrap();
+      cur_size = next_multiple(cur_size, WORKGROUP_SIZE) / WORKGROUP_SIZE;
+    }
+  }
+
+  /// Calculate the updated timestep size according to the CFL condition
+  /// by reducing `b.vel` to find the magnitude of the maximum velocity.
+  pub fn update_dt_reduce_vel(&self, b: &GpuBuffers){
+    // reduce the array of velocities to find the maximum magnitude
+    let mut cur_size = b.n;
+    self.reduce_min_vel_compute_dt.group[0].set_arg(4, 1u32).unwrap();
+    while cur_size > 1 {
+      self.reduce_min_vel_compute_dt.group[0].set_arg(3, cur_size as u32).unwrap();
+      unsafe { self.reduce_min_vel_compute_dt.group[0].cmd()
+        .global_work_size(next_multiple(cur_size, WORKGROUP_SIZE))
+        .enq().unwrap() }
+        self.reduce_min_vel_compute_dt.group[0].set_arg(4, 0u32).unwrap();
+      cur_size = next_multiple(cur_size, WORKGROUP_SIZE) / WORKGROUP_SIZE;
+    }
+    // compute updated dt
+    unsafe { self.reduce_min_vel_compute_dt.group[1].enq().unwrap() }
+  }
 }

@@ -1,9 +1,16 @@
 
+use std::sync::atomic::Ordering::Relaxed;
 use ocl::{prm::{Float, Float2, Uint2}, Buffer, MemFlags, ProQue};
-use crate::{utils::ceil_div, FLUID, H, WARP, WORKGROUP_SIZE};
+use crate::{utils::next_multiple, FLUID, H, INITIAL_DT, WARP, WORKGROUP_SIZE};
 
 
 pub struct GpuBuffers{
+  // general info
+  pub n: usize,
+  // single-value buffers
+  pub dt:Buffer<Float>,
+  pub current_t:Buffer<Float>,
+  // particle attributes
   pub pos: Buffer<Float2>,
   pub vel: Buffer<Float2>,
   pub acc: Buffer<Float2>,
@@ -23,16 +30,33 @@ pub struct GpuBuffers{
   // buffers for resorting
   pub pos_resort: Buffer<Float2>,
   pub vel_resort: Buffer<Float2>,
+  // buffers for reductions
+  pub pos_min: Buffer<Float2>,
+  pub vel_max: Buffer<Float>,
 }
 
 impl GpuBuffers{
   /// Creates a new instance of device-side buffers and a few host buffers
   /// for resorting to preserve memory coherence.
   pub fn new(pro_que: &ProQue, n:usize)->Self{
-    let n_256 = ceil_div(n as usize, WORKGROUP_SIZE);
+    let n_256 = next_multiple(n as usize, WORKGROUP_SIZE);
     let n_groups = n_256/256;
     let splinters = 1 + ((n_groups - 1) / WARP);
     Self{ 
+      n,
+      dt: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(1)
+        .fill_val(Float::new(INITIAL_DT.load(Relaxed) as f32))
+        .build().unwrap(),
+      current_t: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(1)
+        .fill_val(Float::new(0.0))
+        .build().unwrap(),
+
       // buffers for particle attributes
       pos: pro_que.create_buffer::<Float2>().unwrap(), 
       vel: pro_que.create_buffer::<Float2>().unwrap(), 
@@ -72,7 +96,20 @@ impl GpuBuffers{
         .build().unwrap(),
       hist_zeros: vec![0u32; n_256],
       counts_zeros: vec![0u32; 256],
-      counts_b_zeros: vec![0u32; splinters*256], 
+      counts_b_zeros: vec![0u32; splinters*256],
+      // buffers for reducing / finding min pos and max vel
+      pos_min: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(next_multiple(n, WORKGROUP_SIZE)/WORKGROUP_SIZE)
+        .fill_val(Float2::new(0.0, 0.0))
+        .build().unwrap(),
+      vel_max: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(next_multiple(n, WORKGROUP_SIZE)/WORKGROUP_SIZE)
+        .fill_val(Float::new(0.0))
+        .build().unwrap(),
     }
   }
 

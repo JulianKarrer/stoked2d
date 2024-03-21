@@ -31,6 +31,7 @@ lazy_static! {
   static ref LAST_FRAME_TIME:Atomic<u128> = Atomic::new(0);
   static ref PLAY_STATE:Arc<RwLock<PlaybackState>> = Arc::new(RwLock::new(PlaybackState::CaughtUp));
   pub static ref SIMULATION_TOGGLE:Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+  pub static ref REQUEST_RESTART:Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
   // image data for png icons:
   static ref IMAGE_PLAY:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
   static ref IMAGE_PAUSE:Arc<Mutex<Option<egui::TextureHandle>>> = Arc::new(Mutex::new(None));
@@ -168,7 +169,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
             history_timestep.grid_handle_index[i] as f64 / history_timestep.pos.len() as f64
           },
           VisualizedFeature::Velocity => {
-            history_timestep.velocities[i]
+            history_timestep.velocities[i]/20.
           },
         };
         let colour = gradient.at((c*2.0-1.0)*gradient_flipper*0.5+0.5);
@@ -207,7 +208,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         ui.label("Timestep λ");
       });
       ui.horizontal(|ui| {
-        ui.add(egui::DragValue::new(&mut init_dt).speed(0.0001).max_decimals(4).clamp_range(0.0001..=1.0));
+        ui.add(egui::DragValue::new(&mut init_dt).speed(0.00001).max_decimals(5).clamp_range(0.00001..=1.0));
         ui.label("Initial Δt");
       });
       ui.horizontal(|ui| {
@@ -385,8 +386,8 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
     PRESSURE_EQ.store(pressure_eq, Relaxed);
     SOLVER.store(solver, Relaxed);
     MAX_RHO_DEVIATION.store(max_delta_rho, Relaxed);
-    REQUEST_RESTART.store(restart, Relaxed);
-    {*RESORT_ATTRIBUTES_EVERY_N.write() = resort;}
+    if restart != *REQUEST_RESTART.read() {*REQUEST_RESTART.write() = restart};
+    if resort != *RESORT_ATTRIBUTES_EVERY_N.read() {*RESORT_ATTRIBUTES_EVERY_N.write() = resort};
     GRID_CURVE.store(curve, Relaxed);
     VISUALIZED_FEATURE.store(feature, Relaxed);
     COLOUR_SCHEME.store(colours, Relaxed);

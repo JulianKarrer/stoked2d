@@ -28,12 +28,12 @@ __kernel void eulercromerstep(
   __global float2* vel, 
   __global float2* acc, 
   // atomics/variables
-  float dt
+  __global float* dt
 ){
   int i = get_global_id(0);
   // float2 new_v = vel[i] + acc[i]*dt;
-  vel[i] += acc[i]*dt;
-  pos[i] += vel[i]*dt;
+  vel[i] += acc[i]*dt[0];
+  pos[i] += vel[i]*dt[0];
 }
 
 __kernel void enforce_boundary(
@@ -184,20 +184,20 @@ uint cell_key(float2 p, float ks, float2 min){
 
 __kernel void compute_cell_keys(
   // atomics
-  float2 min_extent,
+  __global float2* pos_min,
   float ks,
   // arrays
   __global float2* pos, 
   __global uint2* handles
 ){
   int i = get_global_id(0);
-  handles[i].x = cell_key(pos[handles[i].y], ks, min_extent);
+  handles[i].x = cell_key(pos[handles[i].y], ks, pos_min[0]-(float2)(ks,ks));
 }
 
 
 __kernel void compute_neighbours(
   // atomics
-  float2 min_extent,
+  __global float2* pos_min,
   // arrays
   __global float2* pos, 
   __global uint2* handles,
@@ -214,7 +214,7 @@ __kernel void compute_neighbours(
     (float2)(-ks, ks),
   };
   for (int k=0; k<3; k++){
-    uint key = cell_key(pos[i]+rows_nearby[k],ks,min_extent);
+    uint key = cell_key(pos[i]+rows_nearby[k],ks,pos_min[0]-(float2)(ks,ks));
     // binary search for key
     int result = -1;
     int low = 0;
@@ -494,7 +494,7 @@ __kernel void radix_sort_reorder(
 
 
 
-// ~~~~~~~~~~~~ RESORT POS, VEL ~~~~~~~~~~~~!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// ~~~~~~~~~~~~ RESORT POS, VEL ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 __kernel void resort_data_a(
   __global uint2* handles,
   __global const float2* pos,
@@ -526,3 +526,99 @@ __kernel void resort_data_b(
   handles[i].y = i;
 }
 
+
+// ~~~~~~~~~~~~ REDUCE  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+const float2 MAXFLOAT2 = (float2)(FLT_MAX, FLT_MAX);
+const float2 MINFLOAT2 = (float2)(FLT_MIN, FLT_MIN);
+
+// as described in:
+// https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf
+__kernel void reduce_min(
+  __global float2* arr,
+  __global float2* res,
+  __local float2* l_arr,
+  // arguments 
+  uint n,
+  uint is_first_pass
+){
+  uint gid = get_global_id(0);
+  uint wid = get_group_id(0);
+  uint lid = get_local_id(0);
+  uint local_size = get_local_size(0);
+
+  // load array into local memory
+  if (gid < n){
+    l_arr[lid] = ((is_first_pass==0) ? (res[gid]) : (arr[gid]));
+  } else {
+    l_arr[lid] =  MAXFLOAT2;
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // perform local reduction
+  for (uint s=local_size/2; s>0; s/=2){
+    if (lid < s) {
+      l_arr[lid] = min(l_arr[lid], l_arr[lid + s]);
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+  }
+
+  // write back the result
+  if (lid == 0){
+    res[wid] = l_arr[0];
+  }
+}
+
+__kernel void reduce_max_magnitude(
+  __global float2* arr,
+  __global float* res,
+  __local float* l_arr,
+  // arguments 
+  uint n,
+  uint is_first_pass
+){
+  uint gid = get_global_id(0);
+  uint wid = get_group_id(0);
+  uint lid = get_local_id(0);
+  uint local_size = get_local_size(0);
+
+  // load array into local memory
+  if (gid < n){
+    l_arr[lid] = ((is_first_pass==0) ? length(res[gid]) : length(arr[gid]));
+  } else {
+    l_arr[lid] = FLT_MIN;
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // perform local reduction
+  for (uint s=local_size/2; s>0; s/=2){
+    if (lid < s) {
+      l_arr[lid] = max(l_arr[lid], l_arr[lid + s]);
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+  }
+
+  // write back the result
+  if (lid == 0){
+    res[wid] = l_arr[0];
+  }
+}
+
+__kernel void update_dt(
+  __global float* dt,
+  __global float* t_current,
+  __global float* speed_max,
+  float lambda,
+  float max_dt,
+  float init_dt,
+  // constants
+  float v_eps,
+  float h
+){
+  if (get_global_id(0)==0){
+    float new_dt = min(lambda * h / speed_max[0], max_dt);
+    if (isnan(new_dt) ){ new_dt = init_dt; }
+    t_current[0] += new_dt;
+    dt[0] = new_dt;
+  }
+}
