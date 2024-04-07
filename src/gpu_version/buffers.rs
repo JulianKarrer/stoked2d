@@ -1,7 +1,7 @@
 
 use std::sync::atomic::Ordering::Relaxed;
-use ocl::{prm::{Float, Float2, Uint2}, Buffer, MemFlags, ProQue};
-use crate::{utils::next_multiple, FLUID, H, INITIAL_DT, WARP, WORKGROUP_SIZE};
+use ocl::{prm::{Float, Float2, Uchar3, Uint2}, Buffer, MemFlags, ProQue};
+use crate::{utils::next_multiple, FLUID, H, INITIAL_DT, VIDEO_SIZE, WARP, WORKGROUP_SIZE};
 
 
 pub struct GpuBuffers{
@@ -33,6 +33,8 @@ pub struct GpuBuffers{
   // buffers for reductions
   pub pos_min: Buffer<Float2>,
   pub vel_max: Buffer<Float>,
+  // buffers for rendering,
+  pub image: Buffer<Uchar3>
 }
 
 impl GpuBuffers{
@@ -109,6 +111,12 @@ impl GpuBuffers{
         .flags(MemFlags::new().read_write())
         .len(next_multiple(n, WORKGROUP_SIZE)/WORKGROUP_SIZE)
         .fill_val(Float::new(0.0))
+        .build().unwrap(),
+      image: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(VIDEO_SIZE.0*VIDEO_SIZE.1)
+        .fill_val(Uchar3::new(0, 0, 0))
         .build().unwrap(),
     }
   }

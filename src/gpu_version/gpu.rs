@@ -1,13 +1,14 @@
 extern crate ocl;
 
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
-use ocl::{prm::{Float, Float2, Uint2}, ProQue};
+use indicatif::{ProgressBar, ProgressStyle};
+use ocl::{prm::{Float, Float2,  Uint2}, ProQue};
 use rayon::iter::{IntoParallelRefIterator,  ParallelIterator};
-use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::gui::{REQUEST_RESTART, SIMULATION_TOGGLE}, simulation::update_fps, *};
+use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::{gui::{REQUEST_RESTART, SIMULATION_TOGGLE}, video::VideoHandler}, simulation::update_fps, *};
 
 
-pub fn run(){
+pub fn run(run_for_t:Option<f32>)->bool{
   let n_est: usize = ((FLUID[1].x-FLUID[0].x)/(H) + 1.0).ceil() as usize * ((FLUID[1].y-FLUID[0].y)/(H) + 1.0).ceil() as usize;
   
   // buffer allocation and initialization
@@ -36,6 +37,17 @@ pub fn run(){
   let handle_indices = handles.par_iter().map(|h|h[0]).collect::<Vec<u32>>();
   {  HISTORY.write().gpu_reset_and_add(&pos, &vel, &handle_indices, &den, 0.0); }
 
+  // set up video handler for rendering and progress bar for feedback
+  let mut vid = VideoHandler::default();
+  let progressbar = if run_for_t.is_some() {Some({
+    let progress = ProgressBar::new((run_for_t.unwrap()/FRAME_TIME).ceil() as u64);
+    progress.set_message(format!("{} ITERS/S", SIM_FPS.load(Relaxed)));
+    progress.set_style(
+      ProgressStyle::with_template("{msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} (ETA {eta})").unwrap()
+    );
+    progress
+  })} else {None};
+
   // MAIN LOOP
   let mut last_update_time = timestamp();
   let mut since_resort = 0;
@@ -45,6 +57,11 @@ pub fn run(){
     while *SIMULATION_TOGGLE.read() { thread::sleep(Duration::from_millis(10)); }
     // update atomics to kernel programs
     k.update_atomics();
+
+    // integrate accelerations to position updates
+    k.update_dt_reduce_vel(&b);
+    unsafe { k.euler_cromer.enq().unwrap(); }
+    unsafe { k.boundary.enq().unwrap(); }
 
     // update grid
     if since_resort > {*RESORT_ATTRIBUTES_EVERY_N.read()} {
@@ -57,47 +74,73 @@ pub fn run(){
     unsafe { k.compute_cell_keys.enq().unwrap(); }
     k.sort_handles(&b);
     unsafe { k.compute_neighbours.enq().unwrap(); }
-
     
     // update densities and pressures
     unsafe { k.densitiy_pressure.enq().unwrap(); }
+
     // apply gravity and viscosity
     unsafe { k.gravity_viscosity.enq().unwrap(); }
     // add pressure accelerations
     unsafe { k.pressure_acceleration.enq().unwrap(); }
 
-    // integrate accelerations to position updates
-    k.update_dt_reduce_vel(&b);
-    unsafe { k.euler_cromer.enq().unwrap(); }
-    unsafe { k.boundary.enq().unwrap(); }
-    
-    // write back the positions to the global buffer for visualization and update the FPS count
+    // update the FPS count
     update_fps(&mut last_update_time);
+    // every FRAME_TIME second, update GUI, render frame for video and update progress bar
     b.current_t.read(&mut current_t).enq().unwrap();
-    if current_t[0][0] - last_gui_update_t > 0.017 {
+    if current_t[0][0] - last_gui_update_t > FRAME_TIME {
+      last_gui_update_t = current_t[0][0];
+      // for video
+      unsafe { k.render.enq().unwrap  () }
+      vid.add_frame(&b);
+      // for progressbar
+      if let Some(ref bar) = progressbar {
+        bar.inc(1); 
+        bar.set_message(format!("{:.3} ITERS/S", SIM_FPS.load(Relaxed)));
+      }
+      // for GUI
       b.pos.read(&mut pos).enq().unwrap();
       b.vel.read(&mut vel).enq().unwrap();
       b.den.read(&mut den).enq().unwrap();
       b.handles.read(&mut handles).enq().unwrap();
-      last_gui_update_t = current_t[0][0];
       let handle_indices = handles.par_iter().map(|h|h[1]).collect::<Vec<u32>>();
+      // analyze_handles(&handles);
       {  HISTORY.write().gpu_add_step(&pos, &vel, &handle_indices, &den, current_t[0][0] as f64); }
     }
+    // if only a specific time frame was requested, stop the simulation
+    if let Some(max_t) = run_for_t{
+      if max_t <= current_t[0][0] {
+        progressbar.unwrap().finish();
+        vid.finish();
+        return false;
+      }
+    }
   }
-  *REQUEST_RESTART.write() = false
+  *REQUEST_RESTART.write() = false;
+  true
 }
 
+
+// Count the average and maximum amount of particles in each cell
+fn analyze_handles(handles: &Vec<Uint2>){
+  let frequencies = handles.iter()
+    .fold(HashMap::<u32, usize>::new(), |mut acc, cur|{
+      *(acc.entry(cur[0]).or_default()) += 1;
+      acc
+    });
+  let max_p_in_cell = (&frequencies).into_iter()
+    .max_by_key(|x|x.1)
+    .map(|(_, count)|count)
+    .unwrap();
+  let average_p_in_cell = (&frequencies)
+    .into_iter()
+    .map(|(_, count)| count).sum::<usize>() as f64 / frequencies.len() as f64;
+  println!("{} {}", max_p_in_cell, average_p_in_cell);
+}
 
 /// Calculate the length of a Float2
 pub fn len_float2(x:&Float2)->f64{
   let xc: f64 = x[0] as f64;
   let yc: f64 = x[1] as f64;
-  ((xc*xc)+(yc*yc)).sqrt()
-}
-
-pub fn len_float2_f32(x:&Float2)->f32{
-  let xc: f32 = x[0];
-  let yc: f32 = x[1];
   ((xc*xc)+(yc*yc)).sqrt()
 }
 
@@ -108,9 +151,9 @@ mod tests {
   use crate::utils::next_multiple;
 
 use super::*;
-  use approx::{assert_relative_eq, relative_eq};
-use ocl::{Buffer, MemFlags};
-use rand::Rng;
+  use approx::relative_eq;
+  use ocl::{Buffer, MemFlags};
+  use rand::Rng;
   use test::Bencher;
   
 
@@ -244,6 +287,12 @@ use rand::Rng;
     }
   }
 
+  fn len_float2_f32(x:&Float2)->f32{
+    let xc: f32 = x[0];
+    let yc: f32 = x[1];
+    ((xc*xc)+(yc*yc)).sqrt()
+  }
+  
   fn reduce_max_test(n:usize){
     let workgroup_size = 256;
     let mut cur_size = n;

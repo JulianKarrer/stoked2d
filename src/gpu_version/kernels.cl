@@ -194,9 +194,37 @@ __kernel void compute_cell_keys(
   handles[i].x = cell_key(pos[handles[i].y], ks, pos_min[0]-(float2)(ks,ks));
 }
 
+inline int binary_search(
+  __global uint2* handles,
+  uint key,
+  uint n
+){
+ // binary search for key
+  int low = 0;
+  int high = n-1;
+  while(low<=high){
+    int mid = (high-low)/2+low;
+    uint hit = handles[mid].x;
+    if(
+      (key<=hit && hit<key+3) && 
+      (
+        mid == 0 || 
+        !(key<=handles[mid-1].x && handles[mid-1].x<key+3)
+      )
+    ){
+      return mid;
+    } else {
+      if(hit < key){
+        low=mid+1;
+      } else {
+        high = mid-1;
+      }
+    }
+  }
+  return -1;
+}
 
 __kernel void compute_neighbours(
-  // atomics
   __global float2* pos_min,
   // arrays
   __global float2* pos, 
@@ -214,33 +242,9 @@ __kernel void compute_neighbours(
     (float2)(-ks, ks),
   };
   for (int k=0; k<3; k++){
-    uint key = cell_key(pos[i]+rows_nearby[k],ks,pos_min[0]-(float2)(ks,ks));
-    // binary search for key
-    int result = -1;
-    int low = 0;
-    int high = n-1;
-    while(low<=high){
-      int mid = (high-low)/2+low;
-      uint hit = handles[mid].x;
-      if(
-        (key<=hit && hit<key+3) && 
-        (
-          mid == 0 || 
-          !(key<=handles[mid-1].x && handles[mid-1].x<key+3)
-        )
-      ){
-        result = mid;
-        break;
-      } else {
-        if(hit < key){
-          low=mid+1;
-        } else {
-          high = mid-1;
-        }
-      }
-    }
     // update neighbour set 
-    neighbours[i*3+k] = result;
+    uint key = cell_key(pos[i]+rows_nearby[k],ks,pos_min[0]-(float2)(ks,ks));
+    neighbours[i*3+k] = binary_search(handles, key, n);
   }
 }
 
@@ -621,4 +625,97 @@ __kernel void update_dt(
     t_current[0] += new_dt;
     dt[0] = new_dt;
   }
+}
+
+// ~~~~~~~~~~~~ RENDER  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+const uchar3 BLUE = (uchar3)(0,0,255);
+const uchar3 RED = (uchar3)(255,0,0);
+const uchar3 BLACK = (uchar3)(0,0,0);
+const uchar3 WHITE = (uchar3)(255,255,255);
+
+/// see https://github.com/adammaj1/1D-RGB-color-gradient/blob/main/src/p.c#L197
+inline uchar3 magma(float pos){
+  float x, x2, x3, x4,x5,x6, x7, x8;
+  float R, G, B;
+  x = pos;
+  x2 = x*x;
+  x3 = x*x2;
+  x4 = x*x3;
+  x5 = x*x4;
+  x6 = x*x5;
+  x7 = x*x6;
+  x8 = x*x7;
+  R = -2.1104070317295411e-002 +  1.0825531148278227e+000 * x -7.2556742716785472e-002 * x2 + 6.1700693562312701e+000 * x3 -1.1408475082678258e+001*x4 +  5.2341915705822935e+000*x5;
+  if (R<0.0) R = 0.0; 
+  G = (-9.6293819919380796e-003 +  8.1951407027674095e-001 * x -2.9094991522336970e+000 * x2 + 5.4475501043849874e+000 * x3 -2.3446957347481536e+000*x4);
+  if (G<0.0) G = 0.0;
+  B = 3.4861713828180638e-002 -5.4531128070732215e-001*x + 4.9397985434515761e+001*x2 -3.4537272622690250e+002*x3 + 1.1644865375431577e+003*x4 -2.2241373781645634e+003*x5 + 2.4245808412415154e+003*x6 -1.3968425226952077e+003*x7 
+    +3.2914755310075969e+002*x8;
+  return (uchar3)((unsigned char) 255*R, (unsigned char) 255*G, (unsigned char) 255*B);
+}
+const float2 BORDER_OFFSET = (float2)(0.1,0.1);
+inline bool inbounds(float2 p,float2 low,float2 high){
+  return (p.x>low.x) && (p.x<high.x) && (p.y>low.y) && (p.y<high.y);
+}
+
+__kernel void render_image(
+  __global uchar3* image,
+  __global float2* pos,
+  __global float2* vel,
+  __global float* den,
+  __global float2* pos_min,
+  __global uint2* handles,
+  uint2 resolution,
+  float world_height,
+  uint n,
+  float ks,
+  float2 b_min, 
+  float2 b_max,
+  float alpha,
+  float h,
+  float mass,
+  float rho_zero
+){
+  // return if out of bounds
+  uint gid = get_global_id(0);
+  if (gid >= resolution[0]*resolution[1]) {return;}
+
+  // get world coordinates of current pixel
+  float2 pixel_coord = (float2)(gid % resolution[0], gid / resolution[0]);
+  float2 normal_coord = 2.0f*(pixel_coord / ((float2)(resolution[0], resolution[1]))
+    - (float2)(0.5,0.5));
+  float aspect = (float)resolution[0]/(float)resolution[1];
+  float2 p = (normal_coord*world_height*((float2)(aspect, -1.0)));
+
+  float speed = 0.0;
+  float2 rows_nearby[3] = {
+    (float2)(-ks, -ks),
+    (float2)(-ks, 0),
+    (float2)(-ks, ks),
+  };
+  bool hit = false;
+  for (int k=0; k<3; k++){
+    // update neighbour set 
+    uint key = cell_key(p+rows_nearby[k],ks,pos_min[0]-(float2)(ks,ks));
+    int j = binary_search(handles, key, n);
+    if (j>=0){
+      int initial_cell = (handles[j][0]);
+      while (j<n && (handles[j][0])<initial_cell+3){
+        uint j_i = handles[j][1];
+        hit |= distance(pos[j_i], p) <= h;
+        speed += length(vel[j_i])*w(p, pos[j_i], alpha, h)/den[j_i];
+        j++;
+      }
+    }
+  }
+  speed *= mass;
+  float t = max(min(0.1f+speed/20.0f, 1.0f), 0.0f);
+  uchar3 colour = magma(t);
+
+  image[gid] = (
+    !inbounds(p, b_min, b_max) && 
+    inbounds(p, b_min-BORDER_OFFSET, b_max+BORDER_OFFSET)
+  ) ? WHITE: 
+  (hit? colour : BLACK);
 }

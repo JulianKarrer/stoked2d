@@ -18,6 +18,7 @@ use speedy2d::window::{WindowCreationOptions, WindowPosition};
 mod gui{
   pub mod gui;
   pub mod history;
+  pub mod video;
 }
 mod simulation;
 mod sph;
@@ -38,7 +39,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 static WINDOW_SIZE:[AtomicU32;2] = [AtomicU32::new(1280), AtomicU32::new(800)];
 static SIM_FPS:AtomicF64 = AtomicF64::new(60.0);
-const FPS_SMOOTING:f64 = 0.98;
+const FPS_SMOOTING:f64 = 0.99;
 const VELOCITY_EPSILON:f64 = 0.00001;
 
 // SIMULATION RELATED CONSTANTS AND ATOMICS
@@ -62,6 +63,7 @@ const WORKGROUP_SIZE:usize = 256;
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
+// const H:f64 = 0.002234;
 const H:f64 = 0.04;
 // -> Consequence of kernel support radius 2H:
 const KERNEL_SUPPORT:f64 = 2.0*H;
@@ -82,6 +84,10 @@ static PRESSURE_EQ:AtomicPressureEquation = AtomicPressureEquation::new(simulati
 /// Viscosity constant Nu
 static NU:AtomicF64 = AtomicF64::new(0.3);
 
+const VIDEO_SIZE:(usize, usize) = (2048, 1152);
+const VIDEO_HEIGHT_WORLD:f32 = 10.1f32;
+const FRAME_TIME:f32 = 0.017;
+
 /// Get the current timestamp in microseconds
 fn timestamp()->u128{SystemTime::now().duration_since(UNIX_EPOCH).expect("Error getting current time").as_micros()}
 fn micros_to_seconds(timespan: u128)->f64{0.000_001*timespan as f64}
@@ -89,17 +95,20 @@ fn seconds_to_micros(timespan: f64)->u128{(1_000_000.0*timespan).round() as u128
 
 // ENTRY POINT
 fn main() {
-  let window = Window::new_with_options(
-    "Stoked 2D", 
-    WindowCreationOptions::new_windowed(
-      speedy2d::window::WindowSize::PhysicalPixels((WINDOW_SIZE[0].load(Relaxed), WINDOW_SIZE[1].load(Relaxed)).into()), 
-      Some(WindowPosition::Center)
-    ).with_maximized(true)
-  ).unwrap();
+  // let window = Window::new_with_options(
+  //   "Stoked 2D", 
+  //   WindowCreationOptions::new_windowed(
+  //     speedy2d::window::WindowSize::PhysicalPixels((WINDOW_SIZE[0].load(Relaxed), WINDOW_SIZE[1].load(Relaxed)).into()), 
+  //     Some(WindowPosition::Center)
+  //   ).with_maximized(true)
+  // ).unwrap();
 
-  thread::spawn(||{
-    loop {gpu_version::gpu::run()}
-    // loop{simulation::run()}
-  });
-  window.run_loop(egui_speedy2d::WindowWrapper::new(StokedWindowHandler{}));
+  // thread::spawn(||{
+  //   while gpu_version::gpu::run(None) {}
+  //   // loop{simulation::run()}
+  // });
+  // window.run_loop(egui_speedy2d::WindowWrapper::new(StokedWindowHandler{}));
+
+  while gpu_version::gpu::run(Some(10.0)) {}
+  
 }

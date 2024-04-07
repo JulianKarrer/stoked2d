@@ -1,6 +1,6 @@
-use ocl::{prm::Float2, Kernel, ProQue};
+use ocl::{prm::{Float2, Uint2}, Kernel, ProQue};
 
-use crate::{sph::KERNEL_CUBIC_NORMALIZE, utils::next_multiple, BOUNDARY, GRAVITY, H, INITIAL_DT, K, KERNEL_SUPPORT, LAMBDA, M, MAX_DT, NU, RHO_ZERO, VELOCITY_EPSILON, WARP, WORKGROUP_SIZE};
+use crate::{sph::KERNEL_CUBIC_NORMALIZE, utils::next_multiple, BOUNDARY, GRAVITY, H, INITIAL_DT, K, KERNEL_SUPPORT, LAMBDA, M, MAX_DT, NU, RHO_ZERO, VELOCITY_EPSILON, VIDEO_HEIGHT_WORLD, VIDEO_SIZE, WARP, WORKGROUP_SIZE};
 use std::sync::atomic::Ordering::Relaxed;
 use super::buffers::GpuBuffers;
 
@@ -30,6 +30,7 @@ pub struct Kernels{
   radix_sort:KernelGroup,
   reduce_min_pos:Kernel,
   reduce_min_vel_compute_dt:KernelGroup,
+  pub render:Kernel,
 }
 
 impl Kernels{
@@ -209,6 +210,25 @@ impl Kernels{
       .arg(H as f32)
       .global_work_size(1)
       .build().unwrap();
+    let render = pro_que.kernel_builder("render_image")
+      .arg(&b.image)
+      .arg(&b.pos)
+      .arg(&b.vel)
+      .arg(&b.den)
+      .arg(&b.pos_min)
+      .arg(&b.handles)
+      .arg(Uint2::new(VIDEO_SIZE.0 as u32, VIDEO_SIZE.1 as u32))
+      .arg(VIDEO_HEIGHT_WORLD)
+      .arg(n as u32)
+      .arg(KERNEL_SUPPORT as f32)
+      .arg(Float2::new(BOUNDARY[0][0] as f32, BOUNDARY[0][1] as f32))
+      .arg(Float2::new(BOUNDARY[1][0] as f32, BOUNDARY[1][1] as f32))
+      .arg(KERNEL_CUBIC_NORMALIZE as f32)
+      .arg(H as f32)
+      .arg(M as f32)
+      .arg(RHO_ZERO.load(Relaxed) as f32)
+      .global_work_size(VIDEO_SIZE.0*VIDEO_SIZE.1)
+      .build().unwrap();
 
     Self { 
       euler_cromer: euler_cromer_kernel, 
@@ -228,6 +248,7 @@ impl Kernels{
       },
       reduce_min_pos: reduce_min_pos,
       reduce_min_vel_compute_dt: KernelGroup::new(vec![reduce_max_vel, update_dt]),
+      render,
     }
   }
 
