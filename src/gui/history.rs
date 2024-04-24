@@ -1,3 +1,4 @@
+use glam::DVec2;
 use ocl::prm::{Float, Float2};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
@@ -17,18 +18,24 @@ pub struct HistoryTimestep{
 /// Contains the features of the simulation that are stored for visualization.
 pub struct History{
   pub steps: Vec<HistoryTimestep>,
-  pub plot_density: Vec<[f64;2]>
+  pub plot_density: Vec<[f64;2]>,
+  pub bdy: Vec<[f64; 2]>,
 }
 
 impl Default for History{
   fn default() -> Self {
-    Self { steps: vec![HistoryTimestep::default()], plot_density: vec![[0.0, M/(H*H)]] }
+    Self { 
+      steps: vec![HistoryTimestep::default()], 
+      plot_density: vec![[0.0, M/(H*H)]], 
+      bdy: vec![], 
+    }
   }
 }
 
 // general implementations
 impl History{
   fn reset(&mut self){
+    self.bdy.clear();
     self.steps.clear();
     self.steps.shrink_to_fit();
     self.plot_density.clear();
@@ -38,8 +45,9 @@ impl History{
 
 // CPU implementations
 impl History{
-  pub fn reset_and_add(&mut self, state: &Attributes, grid: &Grid, current_t: f64){
+  pub fn reset_and_add(&mut self, state: &Attributes, grid: &Grid, bdy:&[DVec2], current_t: f64){
     self.reset();
+    self.bdy = bdy.par_iter().map(|p| p.to_array()).collect();
     self.add(state, grid, current_t);
   }
 
@@ -63,8 +71,9 @@ impl History{
 
 // GPU implementations
 impl History{
-  pub fn gpu_reset_and_add(&mut self, pos:&[Float2], vel:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64){
+  pub fn gpu_reset_and_add(&mut self, pos:&[Float2], vel:&[Float2], bdy:&[Float2], handle_indices:&[u32], den:&[Float], current_t:f64){
     self.reset();
+    self.bdy = bdy.par_iter().map(|pos| [pos[0] as f64, pos[1] as f64]).collect();
     self.gpu_add_step(pos, vel, handle_indices, den, current_t);
   }
 

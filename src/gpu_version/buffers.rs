@@ -1,7 +1,9 @@
 
 use std::sync::atomic::Ordering::Relaxed;
 use ocl::{prm::{Float, Float2, Uchar3, Uint2}, Buffer, MemFlags, ProQue};
-use crate::{utils::next_multiple, FLUID, H, INITIAL_DT, VIDEO_SIZE, WARP, WORKGROUP_SIZE};
+use crate::{utils::next_multiple, BDY_MIN, BOUNDARY, BOUNDARY_LAYER_COUNT, FLUID, H, INITIAL_DT, VIDEO_SIZE, WARP, WORKGROUP_SIZE};
+
+use super::gpu::cell_key;
 
 
 pub struct GpuBuffers{
@@ -18,6 +20,10 @@ pub struct GpuBuffers{
   pub prs: Buffer<Float> ,
   pub handles: Buffer<Uint2>,
   pub neighbours: Buffer<i32>,
+  // boundary handling
+  pub bdy: Buffer<Float2>,
+  pub bdy_handles: Buffer<Uint2>,
+  pub bdy_neighbours: Buffer<i32>,
   // buffers for sorting
   pub handles_temp: Buffer<Uint2>,
   pub histograms: Buffer<u32>,
@@ -40,7 +46,7 @@ pub struct GpuBuffers{
 impl GpuBuffers{
   /// Creates a new instance of device-side buffers and a few host buffers
   /// for resorting to preserve memory coherence.
-  pub fn new(pro_que: &ProQue, n:usize)->Self{
+  pub fn new(pro_que: &ProQue, n:usize, n_bdy:usize)->Self{
     let n_256 = next_multiple(n as usize, WORKGROUP_SIZE);
     let n_groups = n_256/256;
     let splinters = 1 + ((n_groups - 1) / WARP);
@@ -65,6 +71,25 @@ impl GpuBuffers{
       acc: pro_que.create_buffer::<Float2>().unwrap(), 
       den: pro_que.create_buffer::<Float>().unwrap() , 
       prs: pro_que.create_buffer::<Float>().unwrap() , 
+      // buffers for boundary handling
+      bdy: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(n_bdy)
+        .fill_val(Float2::new(0.,0.))
+        .build().unwrap(),
+      bdy_handles: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(n_bdy)
+        .fill_val(Uint2::new(0,0))
+        .build().unwrap(),
+      bdy_neighbours: Buffer::builder()
+        .queue(pro_que.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(n*3)
+        .copy_host_slice(&vec![-1;n*3])
+        .build().unwrap(),
       // buffers for neighbour search
       handles: pro_que.create_buffer::<Uint2>().unwrap(), 
       handles_temp: pro_que.create_buffer::<Uint2>().unwrap(), 
@@ -122,8 +147,12 @@ impl GpuBuffers{
   }
 
 
-  pub fn init_cpu_side(pos: &mut Vec<Float2>, vel: &mut Vec<Float2>)->usize{
-    // initialization
+  pub fn init_cpu_side(
+    pos: &mut Vec<Float2>, 
+    vel: &mut Vec<Float2>, 
+    bdy: &mut Vec<Float2>
+  )->(usize,usize){
+    // initialization of positions and velocities
     let mut x = FLUID[0].x as f32;
     let mut y = FLUID[0].y as f32;
     while x <= FLUID[1].x as f32{
@@ -135,15 +164,49 @@ impl GpuBuffers{
       y = FLUID[0].y as f32;
       x += H as f32;
     }
-    pos.len()
+    // initialization of boundary particles
+      // horizontal
+    for i in 0..BOUNDARY_LAYER_COUNT{
+      let mut x = BOUNDARY[0].x+H;
+      while x <= BOUNDARY[1].x{
+        bdy.push(Float2::new(x as f32, (BOUNDARY[0].y-i as f64*H) as f32));
+        bdy.push(Float2::new(x as f32, (BOUNDARY[1].y+i as f64*H) as f32));
+        x += H
+      }
+    }
+    // vertical
+    for i in 0..BOUNDARY_LAYER_COUNT{
+      let mut y = BOUNDARY[0].y-(BOUNDARY_LAYER_COUNT-1) as f64*H;
+      while y < BOUNDARY[1].y+(BOUNDARY_LAYER_COUNT) as f64*H{
+        bdy.push(Float2::new((BOUNDARY[0].x-i as f64*H) as f32, y as f32));
+        bdy.push(Float2::new((BOUNDARY[1].x+i as f64*H) as f32, y as f32));
+        y += H
+      }
+    }
+    bdy.sort_unstable_by_key(|pos| cell_key(pos, &BDY_MIN));
+    (pos.len(), bdy.len())
   }
 
-  pub fn init_gpu_side(&self, n:usize, pos: &Vec<Float2>, vel: &Vec<Float2>){
+  pub fn init_gpu_side(&self, n:usize, pos: &Vec<Float2>, vel: &Vec<Float2>, bdy: &Vec<Float2>){
     self.pos.write(&*pos).enq().unwrap();
     self.vel.write(&*vel).enq().unwrap();
     self.acc.write(&vec![Float2::new(0.0, 0.0);n]).enq().unwrap();
     self.handles.write(&(
       (0..pos.len() as u32).map(|i|Uint2::new(i,i)).collect::<Vec<Uint2>>()
+    )).enq().unwrap();
+    // check that bdy is sorted by cell key
+    bdy.iter().enumerate().for_each(|(i, p)|{
+      if i>0{
+        assert!(i==0 || cell_key(&bdy[i-1], &BDY_MIN)<=cell_key(p, &BDY_MIN),)
+      }
+    });
+    self.bdy.write(&*bdy).enq().unwrap();
+    self.bdy_handles.write(&(
+      bdy
+      .iter()
+      .enumerate()
+      .map(|(i, p)|Uint2::new(cell_key(p, &BDY_MIN),i as u32))
+      .collect::<Vec<Uint2>>()
     )).enq().unwrap();
   }
 }

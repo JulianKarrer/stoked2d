@@ -9,6 +9,11 @@ description = "2D Lagragian fluid simulation using SPH discretization"
 panic = "abort"
 opt-level = 3
 
+[features]
+default = []
+gpu = []
+
+
 [dependencies]
 # DRAWING AND GUI
 egui_speedy2d = "0.4.0"

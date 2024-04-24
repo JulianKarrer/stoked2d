@@ -28,9 +28,11 @@ __kernel void eulercromerstep(
   __global float2* vel, 
   __global float2* acc, 
   // atomics/variables
-  __global float* dt
+  __global float* dt,
+  uint n
 ){
   int i = get_global_id(0);
+  if(i>= n){return;}
   // float2 new_v = vel[i] + acc[i]*dt;
   vel[i] += acc[i]*dt[0];
   pos[i] += vel[i]*dt[0];
@@ -43,9 +45,11 @@ __kernel void enforce_boundary(
   __global float2* acc, 
   // constants
   float2 min, 
-  float2 max
+  float2 max,
+  uint n
 ) {
   int i = get_global_id(0);
+  if(i>= n){return;}
   if(pos[i].x<=min.x){pos[i].x=min.x; acc[i].x=0.0; vel[i].x=0.0;}
   if(pos[i].y<=min.y){pos[i].y=min.y; acc[i].y=0.0; vel[i].y=0.0;}
   if(pos[i].x>=max.x){pos[i].x=max.x; acc[i].x=0.0; vel[i].x=0.0;}
@@ -66,17 +70,22 @@ __kernel void update_densities_pressures(
   __global float2* pos, 
   __global uint2* handles,
   __global int* neighbours,
+  __global float2* bdy, 
+  __global uint2* bdy_handles,
+  __global int* bdy_neighbours,
   // constants
   float mass,
   float alpha,
   float h,
-  uint n
+  uint n,
+  uint n_bdy
 ){
   int i = get_global_id(0);
+  if(i>= n){return;}
   float new_den = 0.0;
   float2 p = pos[i];
 
-  // sum over neighbours
+  // sum over fluid neighbours
   for (int k=0; k<3; k++){
     int j=neighbours[3*i+k]; // j is an index into `handles`
     if (j>=0){
@@ -87,10 +96,82 @@ __kernel void update_densities_pressures(
       }
     }
   }
-
+  // // sum over boundary neighbours
+  // for (int k=0; k<3; k++){
+  //   int j=bdy_neighbours[3*i+k]; // j is an index into `bdy_handles`
+  //   if (j>=0){
+  //     int initial_cell = (bdy_handles[j][0]);
+  //     while (j<n_bdy && (bdy_handles[j][0])<initial_cell+3){
+  //       new_den += w(p, bdy[bdy_handles[j][1]], alpha, h);
+  //       j++;
+  //     }
+  //   }
+  // }
   new_den *= mass;
   den[i] = new_den;
   prs[i] = max(0.0, k*(new_den/rho_0-1.));
+  // prs[i] = k*(new_den/rho_0-1.);
+}
+
+__kernel void add_pressure_acceleration(
+  // atomics
+  float rho_0,
+  // arrays
+  __global float2* pos, 
+  __global float2* acc, 
+  __global float* den,
+  __global float* prs,
+  __global uint2* handles,
+  __global int* neighbours,
+  __global float2* bdy, 
+  __global uint2* bdy_handles,
+  __global int* bdy_neighbours,
+  // constants
+  float mass,
+  float alpha,
+  float h,
+  uint n,
+  uint n_bdy
+){
+  int i = get_global_id(0);
+  if(i>= n){return;}
+  float2 x_i = pos[i];
+  float2 force = (float2)(0.0f,0.0f);
+  float2 force_bdy = (float2)(0.0f,0.0f);
+  float p_i_over_rho_i_squared = prs[i]/(den[i]*den[i]);
+
+  // sum over fluid neighbours
+  for (int k=0; k<3; k++){
+    int j=neighbours[3*i+k]; // j is an index into `handles`
+    if (j>=0){
+      int initial_cell = handles[j][0];
+      while (j<n && (handles[j][0])<initial_cell+3){
+        uint neighbour = handles[j][1];
+        // symmetric formula for pressure forces
+        force -= dw(x_i, pos[neighbour], alpha, h) * 
+          (p_i_over_rho_i_squared + prs[neighbour]/(den[neighbour]*den[neighbour]));
+        j++;
+      }
+    }
+  }
+  // sum over boundary neighbours
+  // for (int k=0; k<3; k++){
+  //   int j=bdy_neighbours[3*i+k]; // j is an index into `handles`
+  //   if (j>=0){
+  //     int initial_cell = bdy_handles[j][0];
+  //     while (j<n_bdy && (bdy_handles[j][0])<initial_cell+3){
+  //       uint neighbour = bdy_handles[j][1];
+  //       // symmetric formula for pressure forces
+  //       force_bdy += dw(x_i, bdy[neighbour], alpha, h);
+  //       j++;
+  //     }
+  //   }
+  // }
+  // force_bdy *= -2.0f * (prs[i]/(rho_0*rho_0));
+  acc[i] += (
+    force + 
+    (force_bdy * -2.0f * (prs[i]/(rho_0*rho_0)))
+  ) * mass;
 }
 
 __kernel void apply_gravity_viscosity(
@@ -111,6 +192,7 @@ __kernel void apply_gravity_viscosity(
   uint n
 ){
   int i = get_global_id(0);
+  if(i>= n){return;}
   float2 acc_g = (float2)(0.0, g);
   float2 vis = (float2)(0.0, 0.0);
   float2 x_i = pos[i];
@@ -136,50 +218,17 @@ __kernel void apply_gravity_viscosity(
   acc[i] = acc_g + vis;
 }
 
-__kernel void add_pressure_acceleration(
-  // atomics
-  float rho_0,
-  // arrays
-  __global float2* pos, 
-  __global float2* acc, 
-  __global float* den,
-  __global float* prs,
-  __global uint2* handles,
-  __global int* neighbours,
-  // constants
-  float mass,
-  float alpha,
-  float h,
-  uint n
-){
-  int i = get_global_id(0);
-  float2 x_i = pos[i];
-  float2 force = (float2)(0.0f,0.0f);
-  float p_i_over_rho_i_squared = prs[i]/(den[i]*den[i]);
-
-  // sum over neighbours
-  for (int k=0; k<3; k++){
-    int j=neighbours[3*i+k]; // j is an index into `handles`
-    if (j>=0){
-      int initial_cell = handles[j][0];
-      while (j<n && (handles[j][0])<initial_cell+3){
-        uint neighbour = handles[j][1];
-        // symmetric formula for pressure forces
-        force -= dw(x_i, pos[neighbour], alpha, h) * 
-          (p_i_over_rho_i_squared + prs[neighbour]/(den[neighbour]*den[neighbour]));
-        j++;
-      }
-    }
-  }
-
-  acc[i] += force*mass;
-}
-
 // ~~~~~~~~~~~~ NEIGHBOURHOOD SEARCH ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-uint cell_key(float2 p, float ks, float2 min){
+inline uint cell_key(float2 p, float ks, float2 min){
   uint2 key = convert_uint2_rtn(convert_ushort2_rtn((p-min)/ks));
   return (key.y <<16) + key.x;
+}
+
+// unit-test the equivalence of the CPU and GPU versions of 
+// cell-key using the following kernel
+__kernel void test_cell_key( __global float2* pos, __global uint* key, uint n, float ks, float2 min ){
+  uint i = get_global_id(0); if(i<n){ key[i] = cell_key(pos[i], ks, min); }
 }
 
 __kernel void compute_cell_keys(
@@ -188,10 +237,12 @@ __kernel void compute_cell_keys(
   float ks,
   // arrays
   __global float2* pos, 
-  __global uint2* handles
+  __global uint2* handles,
+  uint n
 ){
   int i = get_global_id(0);
-  handles[i].x = cell_key(pos[handles[i].y], ks, pos_min[0]-(float2)(ks,ks));
+  if(i>= n){return;}
+  handles[i].x = cell_key(pos[handles[i].y], ks, pos_min[0]);
 }
 
 inline int binary_search(
@@ -225,25 +276,25 @@ inline int binary_search(
 }
 
 __kernel void compute_neighbours(
-  __global float2* pos_min,
+  __global const float2* pos_min,
   // arrays
-  __global float2* pos, 
-  __global uint2* handles,
+  __global const float2* pos, 
+  __global const uint2* handles,
   __global int* neighbours,
   // constants 
-  float ks,
-  uint n
+  float const ks,
+  uint const n
 ){
   int i = get_global_id(0);
   if(i>= n){return;}
-  float2 rows_nearby[3] = {
+  const float2 rows_nearby[3] = {
     (float2)(-ks, -ks),
     (float2)(-ks, 0),
     (float2)(-ks, ks),
   };
   for (int k=0; k<3; k++){
     // update neighbour set 
-    uint key = cell_key(pos[i]+rows_nearby[k],ks,pos_min[0]-(float2)(ks,ks));
+    uint key = cell_key(pos[i]+rows_nearby[k],ks,pos_min[0]);
     neighbours[i*3+k] = binary_search(handles, key, n);
   }
 }
@@ -533,9 +584,6 @@ __kernel void resort_data_b(
 
 // ~~~~~~~~~~~~ REDUCE  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-const float2 MAXFLOAT2 = (float2)(FLT_MAX, FLT_MAX);
-const float2 MINFLOAT2 = (float2)(FLT_MIN, FLT_MIN);
-
 // as described in:
 // https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf
 __kernel void reduce_min(
@@ -544,7 +592,8 @@ __kernel void reduce_min(
   __local float2* l_arr,
   // arguments 
   uint n,
-  uint is_first_pass
+  uint is_first_pass,
+  float2 upper_min_limit
 ){
   uint gid = get_global_id(0);
   uint wid = get_group_id(0);
@@ -553,9 +602,12 @@ __kernel void reduce_min(
 
   // load array into local memory
   if (gid < n){
-    l_arr[lid] = ((is_first_pass==0) ? (res[gid]) : (arr[gid]));
+    l_arr[lid] = min(
+      ((is_first_pass==0) ? res[gid] : arr[gid]), 
+      upper_min_limit
+    );
   } else {
-    l_arr[lid] =  MAXFLOAT2;
+    l_arr[lid] =  upper_min_limit;
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 

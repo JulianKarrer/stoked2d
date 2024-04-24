@@ -1,6 +1,6 @@
 use ocl::{prm::{Float2, Uint2}, Kernel, ProQue};
 
-use crate::{sph::KERNEL_CUBIC_NORMALIZE, utils::next_multiple, BOUNDARY, GRAVITY, H, INITIAL_DT, K, KERNEL_SUPPORT, LAMBDA, M, MAX_DT, NU, RHO_ZERO, VELOCITY_EPSILON, VIDEO_HEIGHT_WORLD, VIDEO_SIZE, WARP, WORKGROUP_SIZE};
+use crate::{sph::KERNEL_CUBIC_NORMALIZE, utils::next_multiple, BDY_MIN, BOUNDARY, GRAVITY, H, HARD_BOUNDARY, INITIAL_DT, K, KERNEL_SUPPORT, LAMBDA, M, MAX_DT, NU, RHO_ZERO, VELOCITY_EPSILON, VIDEO_HEIGHT_WORLD, VIDEO_SIZE, WARP, WORKGROUP_SIZE};
 use std::sync::atomic::Ordering::Relaxed;
 use super::buffers::GpuBuffers;
 
@@ -24,6 +24,7 @@ pub struct Kernels{
   pub gravity_viscosity:Kernel,
   pub pressure_acceleration:Kernel,
   pub compute_neighbours:Kernel,
+  pub compute_boundary_neighbours:Kernel,
   pub compute_cell_keys:Kernel,
   pub resort_pos_vel:Kernel,
   pub resort_pos_vel_b:Kernel,
@@ -43,13 +44,15 @@ impl Kernels{
       .arg(&b.vel)
       .arg(&b.acc)
       .arg(&b.dt)
+      .arg(n)
       .build().unwrap();
     let boundary_kernel = pro_que.kernel_builder("enforce_boundary")
       .arg(&b.pos)
       .arg(&b.vel)
       .arg(&b.acc)
-      .arg(Float2::new(BOUNDARY[0][0] as f32, BOUNDARY[0][1] as f32))
-      .arg(Float2::new(BOUNDARY[1][0] as f32, BOUNDARY[1][1] as f32))
+      .arg(HARD_BOUNDARY[0])
+      .arg(HARD_BOUNDARY[1])
+      .arg(n)
       .build().unwrap();
     let densitiy_pressure_kernel = pro_que.kernel_builder("update_densities_pressures")
       .arg(K.load(Relaxed) as f32)
@@ -59,10 +62,14 @@ impl Kernels{
       .arg(&b.pos)
       .arg(&b.handles)
       .arg(&b.neighbours)
+      .arg(&b.bdy)
+      .arg(&b.bdy_handles)
+      .arg(&b.bdy_neighbours)
       .arg(M as f32)
       .arg(KERNEL_CUBIC_NORMALIZE as f32)
       .arg(H as f32)
       .arg(n)
+      .arg(b.bdy.len() as u32)
       .build().unwrap();
     let gravity_viscosity_kernel = pro_que.kernel_builder("apply_gravity_viscosity")
       .arg(NU.load(Relaxed) as f32)
@@ -86,10 +93,14 @@ impl Kernels{
       .arg(&b.prs)
       .arg(&b.handles)
       .arg(&b.neighbours)
+      .arg(&b.bdy)
+      .arg(&b.bdy_handles)
+      .arg(&b.bdy_neighbours)
       .arg(M as f32)
       .arg(KERNEL_CUBIC_NORMALIZE as f32)
       .arg(H as f32)
       .arg(n)
+      .arg(b.bdy.len()  as u32)
       .build().unwrap();
     let compute_neighbours_kernel = pro_que.kernel_builder("compute_neighbours")
       .arg(&b.pos_min)
@@ -99,11 +110,20 @@ impl Kernels{
       .arg(KERNEL_SUPPORT as f32)
       .arg(n)
       .build().unwrap();
+    let compute_boundary_neighbours_kernel = pro_que.kernel_builder("compute_neighbours")
+      .arg(&b.pos_min)
+      .arg(&b.pos)
+      .arg(&b.bdy_handles)
+      .arg(&b.bdy_neighbours)
+      .arg(KERNEL_SUPPORT as f32)
+      .arg(n)
+      .build().unwrap();
     let compute_cell_keys_kernel = pro_que.kernel_builder("compute_cell_keys")
       .arg(&b.pos_min)
       .arg(KERNEL_SUPPORT as f32)
       .arg(&b.pos)
       .arg(&b.handles)
+      .arg(n)
       .build().unwrap();
     let resort_pos_vel = pro_que.kernel_builder("resort_data_a")
       .arg(&b.handles)
@@ -189,6 +209,7 @@ impl Kernels{
       .arg_local::<u32>(WORKGROUP_SIZE)
       .arg(n as u32)
       .arg(1u32)
+      .arg(*BDY_MIN)
       .local_work_size(WORKGROUP_SIZE)
       .build().unwrap();
     let reduce_max_vel = pro_que.kernel_builder("reduce_max_magnitude")
@@ -237,6 +258,7 @@ impl Kernels{
       gravity_viscosity: gravity_viscosity_kernel, 
       pressure_acceleration: pressure_acceleration_kernel, 
       compute_neighbours: compute_neighbours_kernel,
+      compute_boundary_neighbours: compute_boundary_neighbours_kernel,
       compute_cell_keys: compute_cell_keys_kernel, 
       resort_pos_vel,
       resort_pos_vel_b,

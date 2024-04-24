@@ -1,26 +1,27 @@
 use crate::{*, sph::{kernel, kernel_derivative}, datastructure::Grid};
-use std::fmt::Debug;
+use std::{fmt::Debug, time::Duration};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
 use atomic_enum::atomic_enum;
 
-use self::{gui::gui::REQUEST_RESTART, utils::average_val};
+use self::{gui::gui::{REQUEST_RESTART, SIMULATION_TOGGLE}, utils::average_val};
 
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub fn run(){
+pub fn run()->bool{
   let mut state = Attributes::new();
   let mut grid = Grid::new(state.pos.len());
   grid.update_grid(&state.pos, KERNEL_SUPPORT);
   // state.resort(&grid);
-  let boundary = Boundary::new(3);
-  { *BOUNDARY_PARTICLES.write() = boundary.pos.clone(); }
+  let boundary = Boundary::new(BOUNDARY_LAYER_COUNT);
   let mut current_t = 0.0;
   let mut since_resort = 0;
   // reset history and add first timestep
   update_densities(&state.pos, &mut state.den, &grid, &boundary);
-  {  HISTORY.write().reset_and_add(&state, &grid, current_t); }
+  {  HISTORY.write().reset_and_add(&state, &grid, &boundary.pos, current_t); }
   let mut last_update_time = timestamp();
   while !*REQUEST_RESTART.read() {
+    // wait if requested
+    while *SIMULATION_TOGGLE.read() { thread::sleep(Duration::from_millis(10)); }
     // update the datastructure and potentially resort particle attributes
     if since_resort > {*RESORT_ATTRIBUTES_EVERY_N.read()} {
       state.resort(&grid);
@@ -36,7 +37,8 @@ pub fn run(){
     update_fps(&mut last_update_time);
     {  HISTORY.write().add_step(&state, &grid, current_t); }
   }
-  *REQUEST_RESTART.write() = false
+  *REQUEST_RESTART.write() = false;
+  true
 }
 
 
@@ -250,10 +252,10 @@ fn time_step_explicit_euler_one_quantity(quantity: &mut[DVec2], derivative: &[DV
 /// orthogonal to the boundary to be within bounds.
 fn enforce_boundary_conditions(pos: &mut[DVec2], vel: &mut[DVec2], acc: &mut[DVec2]){
   pos.par_iter_mut().zip(vel).zip(acc).for_each(|((p, v), a)| {
-    if p.x < BOUNDARY[0].x {p.x = BOUNDARY[0].x; a.x=0.0; v.x=0.0;} 
-    if p.y < BOUNDARY[0].y {p.y = BOUNDARY[0].y; a.y=0.0; v.y=0.0;} 
-    if p.x > BOUNDARY[1].x {p.x = BOUNDARY[1].x; a.x=0.0; v.x=0.0;} 
-    if p.y > BOUNDARY[1].y {p.y = BOUNDARY[1].y; a.y=0.0; v.y=0.0;} 
+    if p.x < HARD_BOUNDARY[0][0] as f64 {p.x = HARD_BOUNDARY[0][0] as f64; a.x=0.0; v.x=0.0;} 
+    if p.y < HARD_BOUNDARY[0][1] as f64 {p.y = HARD_BOUNDARY[0][1] as f64; a.y=0.0; v.y=0.0;} 
+    if p.x > HARD_BOUNDARY[1][0] as f64 {p.x = HARD_BOUNDARY[1][0] as f64; a.x=0.0; v.x=0.0;} 
+    if p.y > HARD_BOUNDARY[1][1] as f64 {p.y = HARD_BOUNDARY[1][1] as f64; a.y=0.0; v.y=0.0;} 
   })
 }
 
@@ -385,7 +387,7 @@ impl Boundary{
     let mut pos = vec![];
     for i in 0..layers{
       let mut x = BOUNDARY[0].x+H;
-      while x < BOUNDARY[1].x - H{
+      while x <= BOUNDARY[1].x{
         pos.push(DVec2::new(x, BOUNDARY[0].y-i as f64*H));
         pos.push(DVec2::new(x, BOUNDARY[1].y+i as f64*H));
         x += H
@@ -393,7 +395,7 @@ impl Boundary{
     }
     for i in 0..layers{
       let mut y = BOUNDARY[0].y-(layers-1) as f64*H;
-      while y < BOUNDARY[1].y+(layers-1) as f64*H{
+      while y < BOUNDARY[1].y+(layers) as f64*H{
         pos.push(DVec2::new(BOUNDARY[0].x-i as f64*H, y));
         pos.push(DVec2::new(BOUNDARY[1].x+i as f64*H, y));
         y += H

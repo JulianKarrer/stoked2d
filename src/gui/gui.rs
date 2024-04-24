@@ -19,7 +19,7 @@ const FONT_HEADING_SIZE:f32 = 25.0;
 static ICON_SIZE:Vec2 = Vec2::new(24.0, 24.0);
 
 // GUI RELATED CONSTANTS AND ATOMICS
-static ZOOM:AtomicF32 = AtomicF32::new(45.0);
+static ZOOM:AtomicF32 = AtomicF32::new(90.0);
 const ZOOM_SPEED:f32 = 1.5;
 static DRAGGING:AtomicBool = AtomicBool::new(false);
 pub const BOUNDARY_THCKNESS:f64 = 0.05;
@@ -109,7 +109,7 @@ const ICON_ALPHA:[u8; 1024] = [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 ];
 
-pub fn draw_particles(graphics: &mut Graphics2D, timestep: &HistoryTimestep, size:(f32, f32)){
+pub fn draw_particles(graphics: &mut Graphics2D, bdy: &Vec<[f64; 2]>, timestep: &HistoryTimestep, size:(f32, f32)){
   // clear screen
   graphics.clear_screen(Color::BLACK);
 
@@ -117,13 +117,13 @@ pub fn draw_particles(graphics: &mut Graphics2D, timestep: &HistoryTimestep, siz
   let z = ZOOM.load(Relaxed);
   let off = *(*DRAG_OFFSET).read();
 
-  // draw the boundary
-  graphics.draw_rectangle(Rectangle::new(
-    camera_transform(&BOUNDARY[0].to_array(), &off, z, w, h), 
-    camera_transform(&BOUNDARY[1].to_array(), &off, z, w, h), 
-    ), 
-    Color::WHITE
-  );
+  // // draw the boundary
+  // graphics.draw_rectangle(Rectangle::new(
+  //   camera_transform(&BOUNDARY[0].to_array(), &off, z, w, h), 
+  //   camera_transform(&BOUNDARY[1].to_array(), &off, z, w, h), 
+  //   ), 
+  //   Color::WHITE
+  // );
   graphics.draw_rectangle(Rectangle::new(
     camera_transform(&(BOUNDARY[0]+DVec2::ONE*BOUNDARY_THCKNESS).to_array(), &off, z, w, h), 
     camera_transform(&(BOUNDARY[1]-DVec2::ONE*BOUNDARY_THCKNESS).to_array(), &off, z, w, h), 
@@ -131,14 +131,16 @@ pub fn draw_particles(graphics: &mut Graphics2D, timestep: &HistoryTimestep, siz
     Color::BLACK
   );
   // draw all boundary particles
-  let boundary_colour = Color::from_rgba(1.0, 1.0, 1.0, 0.5);
-  BOUNDARY_PARTICLES.read().iter().for_each(|p|{
-    graphics.draw_circle(
-      camera_transform(&p.to_array(), &off, z, w, h), 
-      0.5*z*H as f32, 
-      boundary_colour
-    )
-  });
+  if !cfg!(feature = "gpu"){
+    let boundary_colour = Color::from_rgba(1.0, 1.0, 1.0, 0.5);
+    bdy.iter().for_each(|p|{
+      graphics.draw_circle(
+        camera_transform(&p, &off, z, w, h), 
+        0.5*z*H as f32, 
+        boundary_colour
+      )
+    });
+  }
     
   // draw each particle, with (0,0) being the centre of the screen
   let scheme = COLOUR_SCHEME.load(Relaxed);
@@ -225,7 +227,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         PlaybackState::Paused(_, current_step) => &hist.steps[current_step],
         PlaybackState::CaughtUp => hist.steps.last().unwrap(),
       };
-      draw_particles(graphics, history_timestep, (WINDOW_SIZE[0].load(Relaxed) as f32, WINDOW_SIZE[1].load(Relaxed) as f32));
+      draw_particles(graphics, &hist.bdy, history_timestep, (WINDOW_SIZE[0].load(Relaxed) as f32, WINDOW_SIZE[1].load(Relaxed) as f32));
     }
     
     // draw the GUI
@@ -279,7 +281,6 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         ui.label("Rest density ρ₀");
       });
       // adjust pressure solver settings
-      ui.separator();
       ui.label(RichText::new("Pressure Solver").font(header.clone()));
       egui::ComboBox::from_label("Pressure Equation")
         .selected_text(format!("{:?}", pressure_eq))
@@ -304,7 +305,6 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         ui.label("Max. |Δρ| η");
       });
       // adjust datastructure settings
-      ui.separator();
       ui.label(RichText::new("Datastructure").font(header.clone()));
       ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut resort).speed(1));
@@ -318,7 +318,6 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         }
       );
       // adjust GUI
-      ui.separator();
       ui.label(RichText::new("Visualization").font(header.clone()));
       egui::ComboBox::from_label("Visualized feature")
         .selected_text(format!("{:?}", feature))
@@ -337,15 +336,16 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         }
       );
 
-      // PLOT
-      ui.separator();
-      ui.label(RichText::new("Plot").font(header.clone()));
+    });  
+    // PLOT WINDOW
+    egui::Window::new("Density Plot").resizable(true).show(egui_ctx, |ui| {
+      // ui.label(RichText::new("Plot").font(header.clone()));
       let avg_den_plot: PlotPoints = { (*HISTORY).read().plot_density.clone().into()};
       Plot::new("plot").view_aspect(2.0).show(ui, |plot_ui| 
         plot_ui.line(Line::new(avg_den_plot))
       );
-      
-    });  
+    });
+
     // BOTTOM PANEL
     egui::panel::TopBottomPanel::bottom("time_panel").resizable(false).show(egui_ctx, |ui|{
       ui.horizontal(|ui| {
