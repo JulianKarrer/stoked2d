@@ -8,8 +8,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build_and_test_gpu:
-    name: Stoked2D GPU version
+  build_cpu_and_gpu:
+    name: Build CPU and GPU version
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -17,12 +17,16 @@ jobs:
           - nightly
     steps:
       - uses: actions/checkout@v3
-      - run: sudo apt install libavformat-dev libavfilter-dev libavdevice-dev
+      - uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: ibavformat-dev libavfilter-dev libavdevice-dev
+          version: 1.0
       - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
       - run: cargo build --release --features "gpu" --verbose
+      - run: cargo build --release --verbose
 
-  build_and_test_cpu:
-    name: Stoked2D CPU version
+  test_cpu_and_gpu:
+    name: Test CPU and GPU version
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -30,7 +34,11 @@ jobs:
           - nightly
     steps:
       - uses: actions/checkout@v3
-      - run: sudo apt install libavformat-dev libavfilter-dev libavdevice-dev
+      - uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: ibavformat-dev libavfilter-dev libavdevice-dev
+          version: 1.0
       - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - run: cargo build --release --verbose
+      - run: cargo test --release --features "gpu" --verbose
+      - run: cargo test --release --verbose
   
