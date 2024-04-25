@@ -38,7 +38,7 @@ impl Kernels{
   /// Initialize a new set of kernel functions, compiling all
   /// relevant programs and setting their parameters using constants,
   /// atomics and the corresponsing buffers in a `GpuBuffer`.
-  pub fn new(b: &GpuBuffers, pro_que:ProQue, n:u32)->Self{
+  pub fn new(b: &GpuBuffers, pro_que:&ProQue, n:u32)->Self{
     let euler_cromer_kernel = pro_que.kernel_builder("eulercromerstep")
       .arg(&b.pos)
       .arg(&b.vel)
@@ -315,8 +315,8 @@ impl Kernels{
   }
 
   /// Calculate the minimum position in `b.pos`, saving the result to `b.pos_min[0]`
-  pub fn reduce_pos_min(&self, b: &GpuBuffers){
-    let mut cur_size = b.n;
+  pub fn reduce_pos_min(&self, n: usize){
+    let mut cur_size = n;
     self.reduce_min_pos.set_arg(4, 1u32).unwrap();
     while cur_size > 1 {
       self.reduce_min_pos.set_arg(3, cur_size as u32).unwrap();

@@ -19,7 +19,7 @@ use speedy2d::window::{WindowCreationOptions, WindowPosition};
 mod gui{
   pub mod gui;
   pub mod history;
-  pub mod video;
+  // pub mod video;
 }
 mod simulation;
 mod sph;
@@ -45,35 +45,38 @@ const VELOCITY_EPSILON:f64 = 0.00001;
 
 // SIMULATION RELATED CONSTANTS AND ATOMICS
 lazy_static! {
-  pub static ref THREADS:usize = available_parallelism().unwrap().get();
-  static ref BOUNDARY:[DVec2;2] = [DVec2::new(-5.0,-2.0), DVec2::new(5.0,2.0)];
-  static ref FLUID:[DVec2;2] = [DVec2::new(-5.0+H*2.,-2.0+H*2.), DVec2::new(3.0-H,-1.2)];
+  static ref THREADS:usize = available_parallelism().unwrap().get();
+
+  // small container
+  // static ref BOUNDARY:[DVec2;2] = [DVec2::new(-5.0,-2.0), DVec2::new(5.0,2.0)];
+  // static ref FLUID:[DVec2;2] = [DVec2::new(-5.0+H*1.,-2.0+H*1.), DVec2::new(3.0-H,-1.2)];
+
+  // large container
+  static ref BOUNDARY:[DVec2;2] = [DVec2::new(-10.0,-10.0), DVec2::new(10.0,10.0)];
+  static ref FLUID:[DVec2;2] = [DVec2::new(-10.0+H*3.0,-10.0+H*2.0), DVec2::new(0.0,-5.0)];
+  
   static ref HARD_BOUNDARY:[Float2;2] = [
-    Float2::new(BOUNDARY[0].x as f32-(BOUNDARY_LAYER_COUNT+5) as f32*H as f32,BOUNDARY[0].y as f32-(BOUNDARY_LAYER_COUNT+5) as f32*H as f32), 
-    Float2::new(BOUNDARY[1].x as f32+(BOUNDARY_LAYER_COUNT+5) as f32*H as f32,BOUNDARY[1].y as f32+(BOUNDARY_LAYER_COUNT+5) as f32*H as f32)
+    Float2::new(BOUNDARY[0].x as f32-(BOUNDARY_LAYER_COUNT+10) as f32*H as f32,BOUNDARY[0].y as f32-(BOUNDARY_LAYER_COUNT+10) as f32*H as f32), 
+    Float2::new(BOUNDARY[1].x as f32+(BOUNDARY_LAYER_COUNT+10) as f32*H as f32,BOUNDARY[1].y as f32+(BOUNDARY_LAYER_COUNT+10) as f32*H as f32)
   ];
-  pub static ref HISTORY:Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
-  pub static ref SOLVER:AtomicSolver = AtomicSolver::new(simulation::Solver::SESPH);
-  pub static ref RESORT_ATTRIBUTES_EVERY_N:Arc<RwLock<u32>> = Arc::new(RwLock::new(4));
-  pub static ref BDY_MIN:Float2 = HARD_BOUNDARY[0] - Float2::new(
+  static ref HISTORY:Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
+  static ref SOLVER:AtomicSolver = AtomicSolver::new(simulation::Solver::SESPH);
+  static ref RESORT_ATTRIBUTES_EVERY_N:Arc<RwLock<u32>> = Arc::new(RwLock::new(4));
+  static ref BDY_MIN:Float2 = HARD_BOUNDARY[0] - Float2::new(
     (BOUNDARY_LAYER_COUNT+20) as f32*H as f32,
-    (BOUNDARY_LAYER_COUNT+20) as f32*H as f32, 
+    (BOUNDARY_LAYER_COUNT+20) as f32*H as f32,
   );
 }
-
-// datastructure settings
-static GRID_CURVE:AtomicGridCurve = AtomicGridCurve::new(GridCurve::Morton);
-
-// gpu settings
-const WARP:usize = 256;
-const WORKGROUP_SIZE:usize = 256;
 
 /// The gravitational constant
 static GRAVITY:AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-// const H:f64 = 0.002234;
-const H:f64 = 0.03;
-const BOUNDARY_LAYER_COUNT:usize = 4;
+const H:f64 = 0.04;
+// const BOUNDARY_LAYER_COUNT:usize = 5;
+// const USE_GPU_BOUNDARY:bool = true;
+const BOUNDARY_LAYER_COUNT:usize = 1;
+const USE_GPU_BOUNDARY:bool = false;
+
 // -> Consequence of kernel support radius 2H:
 const KERNEL_SUPPORT:f64 = 2.0*H;
 /// The factor of the maximum size of a time step taken each iteration
@@ -93,6 +96,15 @@ static PRESSURE_EQ:AtomicPressureEquation = AtomicPressureEquation::new(simulati
 /// Viscosity constant Nu
 static NU:AtomicF64 = AtomicF64::new(0.3);
 
+
+// datastructure settings
+static GRID_CURVE:AtomicGridCurve = AtomicGridCurve::new(GridCurve::Morton);
+
+// gpu settings
+const WARP:usize = 256;
+const WORKGROUP_SIZE:usize = 256;
+
+// video settings
 const VIDEO_SIZE:(usize, usize) = (2048, 1152);
 const VIDEO_HEIGHT_WORLD:f32 = 10.1f32;
 const FRAME_TIME:f32 = 1./60.;

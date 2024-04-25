@@ -12,6 +12,7 @@ opt-level = 3
 [features]
 default = []
 gpu = []
+video = []
 
 
 [dependencies]
@@ -23,8 +24,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 indicatif = "0.17.8"
 
 # VIDEO EXPORT
-video-rs = { version = "0.7", features = ["ndarray"] }
-ndarray = "0.15.6"
+# video-rs = { version = "0.7", features = ["ndarray"] }
+# ndarray = "0.15.6"
 
 # VECTORS AND MATH
 glam = { version = "0.25.0", features = ["fast-math"] }

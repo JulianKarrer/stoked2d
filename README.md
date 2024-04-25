@@ -13,8 +13,5 @@ Both the SPH calculations and the neighbour search using parallel radix sort are
 
 
 
-To run and build the project, use:
-```
-cargo run -r
-cargo build -r
-```
+To run and build the project use `cargo run --release` and `cargo build --release`.
+GPU support is enabled by appending the flag `--features "gpu"`.

@@ -5,8 +5,8 @@ use std::time::Duration;
 use indicatif::{ProgressBar, ProgressStyle};
 use ocl::{prm::{Float, Uint2}, ProQue};
 use rayon::iter::{IntoParallelRefIterator,  ParallelIterator};
-use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::{gui::{REQUEST_RESTART, SIMULATION_TOGGLE}, video::VideoHandler}, simulation::update_fps, *};
-
+use crate::{gpu_version::{buffers::GpuBuffers, kernels::Kernels}, gui::gui::{REQUEST_RESTART, SIMULATION_TOGGLE}, simulation::update_fps, *};
+// use crate::video::VideoHandler
 
 pub fn run(run_for_t:Option<f32>)->bool{
   let n_est: usize = ((FLUID[1].x-FLUID[0].x)/(H) + 1.0).ceil() as usize * ((FLUID[1].y-FLUID[0].y)/(H) + 1.0).ceil() as usize;
@@ -22,7 +22,10 @@ pub fn run(run_for_t:Option<f32>)->bool{
     .build().unwrap();
   println!("Number of particles: {}",n);
   let b: GpuBuffers = GpuBuffers::new(&pro_que, n, n_bdy);
-  b.init_gpu_side(n, &pos, &vel, &bdy);
+  // build relevant kernels
+  let k = Kernels::new(&b, &pro_que, pos.len() as u32);
+  // finish initializing buffers on gpu side
+  b.init_gpu_side(n, &pos, &vel, &bdy, &k, &pro_que);
   let mut den: Vec<Float> = vec![Float::new((M/(H*H)) as f32);pos.len()];
   let mut handles:Vec<Uint2> = (0..pos.len()).map(|i| Uint2::new(i as u32, i as u32)).collect();
 
@@ -31,15 +34,13 @@ pub fn run(run_for_t:Option<f32>)->bool{
   let mut last_gui_update_t = 0.0f32;
   // let mut dt = INITIAL_DT.load(Relaxed) as f32;
 
-  // build relevant kernels
-  let k = Kernels::new(&b, pro_que, pos.len() as u32);
   
   // intitial history timestep for visualization
   let handle_indices = handles.par_iter().map(|h|h[0]).collect::<Vec<u32>>();
   {  HISTORY.write().gpu_reset_and_add(&pos, &vel, &bdy, &handle_indices, &den, 0.0); }
 
   // set up video handler for rendering and progress bar for feedback
-  let mut vid = VideoHandler::default();
+  // let mut vid = VideoHandler::default();
   let progressbar = if run_for_t.is_some() {Some({
     let progress = ProgressBar::new((run_for_t.unwrap()/FRAME_TIME).ceil() as u64);
     progress.set_message(format!("{} ITERS/S", SIM_FPS.load(Relaxed)));
@@ -53,7 +54,7 @@ pub fn run(run_for_t:Option<f32>)->bool{
   let mut last_update_time = timestamp();
   let mut since_resort = 0;
   let mut current_t = vec![Float::new(0.0)];
-  k.reduce_pos_min(&b);
+  k.reduce_pos_min(b.n);
   while !*REQUEST_RESTART.read() {
     // wait if requested
     while *SIMULATION_TOGGLE.read() { thread::sleep(Duration::from_millis(10)); }
@@ -76,7 +77,7 @@ pub fn run(run_for_t:Option<f32>)->bool{
     unsafe { k.compute_cell_keys.enq().unwrap(); }
     k.sort_handles(&b);
     unsafe { k.compute_neighbours.enq().unwrap(); }
-    // unsafe { k.compute_boundary_neighbours.enq().unwrap(); }
+    if USE_GPU_BOUNDARY {unsafe { k.compute_boundary_neighbours.enq().unwrap(); }}
     
     // update densities and pressures
     unsafe { k.densitiy_pressure.enq().unwrap(); }
@@ -94,7 +95,7 @@ pub fn run(run_for_t:Option<f32>)->bool{
       last_gui_update_t = current_t[0][0];
       // for video
       unsafe { k.render.enq().unwrap  () }
-      vid.add_frame(&b);
+      // vid.add_frame(&b);
       // for progressbar
       if let Some(ref bar) = progressbar {
         bar.inc(1); 
@@ -113,7 +114,7 @@ pub fn run(run_for_t:Option<f32>)->bool{
     if let Some(max_t) = run_for_t{
       if max_t <= current_t[0][0] {
         progressbar.unwrap().finish();
-        vid.finish();
+        // vid.finish();
         return false;
       }
     }
@@ -130,13 +131,6 @@ pub fn len_float2(x:&Float2)->f64{
   ((xc*xc)+(yc*yc)).sqrt()
 }
 
-/// The same cell_key function used in the GPU kernels
-pub fn cell_key(p:&Float2, min: &Float2) -> u32 {
-  let x: u32 = (((p[0]-min[0])/(KERNEL_SUPPORT as f32)) as u16) as u32;
-  let y: u32 = (((p[1]-min[1])/(KERNEL_SUPPORT as f32)) as u16) as u32;
-  (y << 16) + x
-}
-
 
 #[cfg(test)]
 mod tests {
@@ -149,50 +143,6 @@ use super::*;
   use rand::Rng;
   use test::Bencher;
   
-  #[test]
-  fn cell_key_functions_are_identical(){
-    let n = 30_000u32;
-    // initialize random positions and find minimum spatial extent
-    let pos:Vec<Float2> = (0..n)
-      .map(|_| Float2::new(random_float(),random_float()))
-      .collect();
-    let mut xmin = f32::MAX;
-    let mut ymin = f32::MAX;
-    for p in &pos{
-      xmin = xmin.min(p[0]);
-      ymin = ymin.min(p[1]);
-    }
-    let min = Float2::new(xmin, ymin);
-    // calculate predicted CPU result
-    let expected:Vec<u32> = pos.iter().map(|p| cell_key(p, &min)).collect();
-    // calculate on the GPU for comparison
-    let pro_que: ProQue = ProQue::builder()
-      .src(include_str!("kernels.cl")).dims(n).build().unwrap();
-    let pos_buf = Buffer::builder()
-      .queue(pro_que.queue().clone())
-      .flags(MemFlags::new().read_write())
-      .len(n)
-      .copy_host_slice(&pos)
-      .build().unwrap();
-    let key_buf = pro_que.create_buffer::<u32>().unwrap();
-    let test_kernel = pro_que.kernel_builder("test_cell_key")
-      .arg(&pos_buf)
-      .arg(&key_buf)
-      .arg(n)
-      .arg(KERNEL_SUPPORT as f32)
-      .arg(min)
-      .build().unwrap();
-    unsafe { test_kernel.enq().unwrap() }
-    // retrieve the result from the gpu
-    let mut keys = vec![0u32; n as usize];
-    key_buf.read(&mut keys).enq().unwrap();
-    // assert that the results are the same
-    keys.iter().zip(expected).for_each(|(a,b)|{
-      assert_eq!(*a, b, "{} != {}",*a,b);
-    })
-  }
-
-
   #[test]
   fn gpu_sorting_radix_small(){
     for _ in 0..20{ 
@@ -217,7 +167,7 @@ use super::*;
     ).collect();
     b.handles.write(&handles).enq().unwrap();
 
-    let k = Kernels::new(&b, pro_que, n as u32);
+    let k = Kernels::new(&b, &pro_que, n as u32);
     k.sort_handles(&b);
     b.handles.read(&mut handles).enq().unwrap();
     handles.iter().enumerate().skip(1).for_each(|(i,h)| 
@@ -231,7 +181,7 @@ use super::*;
     let pro_que: ProQue = ProQue::builder()
       .src(include_str!("kernels.cl")).dims(n).build().unwrap();
     let buffers: GpuBuffers = GpuBuffers::new(&pro_que, n, n);
-    let kernels = Kernels::new(&buffers, pro_que, n as u32);
+    let kernels = Kernels::new(&buffers, &pro_que, n as u32);
     let mut handles:Vec<Uint2> = (0..n).map(|i| 
       Uint2::new(rand_uint(), i as u32)
     ).collect();
@@ -276,13 +226,13 @@ use super::*;
       .fill_val(Float2::new(0.0, 0.0))
       .build().unwrap();
 
-
     let reduce = pro_que.kernel_builder("reduce_min")
       .arg(&pos_b)
       .arg(&pos_res_b)
       .arg_local::<u32>(workgroup_size)
       .arg(n as u32)
       .arg(1u32)
+      .arg(Float2::zero())
       .local_work_size(workgroup_size)
       .build().unwrap();
     
@@ -400,6 +350,7 @@ use super::*;
       .arg_local::<u32>(workgroup_size)
       .arg(n as u32)
       .arg(1u32)
+      .arg(Float2::zero())
       .local_work_size(workgroup_size)
       .build().unwrap();
 

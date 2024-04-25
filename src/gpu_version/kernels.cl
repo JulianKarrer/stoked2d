@@ -96,17 +96,17 @@ __kernel void update_densities_pressures(
       }
     }
   }
-  // // sum over boundary neighbours
-  // for (int k=0; k<3; k++){
-  //   int j=bdy_neighbours[3*i+k]; // j is an index into `bdy_handles`
-  //   if (j>=0){
-  //     int initial_cell = (bdy_handles[j][0]);
-  //     while (j<n_bdy && (bdy_handles[j][0])<initial_cell+3){
-  //       new_den += w(p, bdy[bdy_handles[j][1]], alpha, h);
-  //       j++;
-  //     }
-  //   }
-  // }
+  // sum over boundary neighbours
+  for (int k=0; k<3; k++){
+    int j=bdy_neighbours[3*i+k]; // j is an index into `bdy_handles`
+    if (j>=0){
+      int initial_cell = (bdy_handles[j][0]);
+      while (j<n_bdy && (bdy_handles[j][0])<initial_cell+3){
+        new_den += w(p, bdy[bdy_handles[j][1]], alpha, h);
+        j++;
+      }
+    }
+  }
   new_den *= mass;
   den[i] = new_den;
   prs[i] = max(0.0, k*(new_den/rho_0-1.));
@@ -155,23 +155,20 @@ __kernel void add_pressure_acceleration(
     }
   }
   // sum over boundary neighbours
-  // for (int k=0; k<3; k++){
-  //   int j=bdy_neighbours[3*i+k]; // j is an index into `handles`
-  //   if (j>=0){
-  //     int initial_cell = bdy_handles[j][0];
-  //     while (j<n_bdy && (bdy_handles[j][0])<initial_cell+3){
-  //       uint neighbour = bdy_handles[j][1];
-  //       // symmetric formula for pressure forces
-  //       force_bdy += dw(x_i, bdy[neighbour], alpha, h);
-  //       j++;
-  //     }
-  //   }
-  // }
-  // force_bdy *= -2.0f * (prs[i]/(rho_0*rho_0));
-  acc[i] += (
-    force + 
-    (force_bdy * -2.0f * (prs[i]/(rho_0*rho_0)))
-  ) * mass;
+  for (int k=0; k<3; k++){
+    int j=bdy_neighbours[3*i+k]; // j is an index into `handles`
+    if (j>=0){
+      int initial_cell = bdy_handles[j][0];
+      while (j<n_bdy && (bdy_handles[j][0])<initial_cell+3){
+        uint neighbour = bdy_handles[j][1];
+        // symmetric formula for pressure forces
+        force_bdy += dw(x_i, bdy[neighbour], alpha, h);
+        j++;
+      }
+    }
+  }
+  force_bdy *= -2.0f * (prs[i]/(rho_0*rho_0));
+  acc[i] += (force + force_bdy) * mass;
 }
 
 __kernel void apply_gravity_viscosity(

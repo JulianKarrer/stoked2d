@@ -1,9 +1,10 @@
 
 use std::sync::atomic::Ordering::Relaxed;
 use ocl::{prm::{Float, Float2, Uchar3, Uint2}, Buffer, MemFlags, ProQue};
-use crate::{utils::next_multiple, BDY_MIN, BOUNDARY, BOUNDARY_LAYER_COUNT, FLUID, H, INITIAL_DT, VIDEO_SIZE, WARP, WORKGROUP_SIZE};
+use crate::{utils::next_multiple, BOUNDARY, BOUNDARY_LAYER_COUNT, FLUID, H, INITIAL_DT, KERNEL_SUPPORT, VIDEO_SIZE, WARP, WORKGROUP_SIZE};
 
-use super::gpu::cell_key;
+use super::kernels::Kernels;
+
 
 
 pub struct GpuBuffers{
@@ -183,30 +184,53 @@ impl GpuBuffers{
         y += H
       }
     }
-    bdy.sort_unstable_by_key(|pos| cell_key(pos, &BDY_MIN));
     (pos.len(), bdy.len())
   }
 
-  pub fn init_gpu_side(&self, n:usize, pos: &Vec<Float2>, vel: &Vec<Float2>, bdy: &Vec<Float2>){
+  pub fn init_gpu_side(&self, n:usize, pos: &Vec<Float2>, vel: &Vec<Float2>, bdy: &Vec<Float2>, k:&Kernels, pro_que: &ProQue){
     self.pos.write(&*pos).enq().unwrap();
     self.vel.write(&*vel).enq().unwrap();
     self.acc.write(&vec![Float2::new(0.0, 0.0);n]).enq().unwrap();
     self.handles.write(&(
       (0..pos.len() as u32).map(|i|Uint2::new(i,i)).collect::<Vec<Uint2>>()
     )).enq().unwrap();
-    // check that bdy is sorted by cell key
-    bdy.iter().enumerate().for_each(|(i, p)|{
-      if i>0{
-        assert!(i==0 || cell_key(&bdy[i-1], &BDY_MIN)<=cell_key(p, &BDY_MIN),)
-      }
-    });
+
+    // calculate the cell keys on the gpu
+      // write unsorted bdy and bdy_handles
     self.bdy.write(&*bdy).enq().unwrap();
-    self.bdy_handles.write(&(
-      bdy
-      .iter()
-      .enumerate()
-      .map(|(i, p)|Uint2::new(cell_key(p, &BDY_MIN),i as u32))
-      .collect::<Vec<Uint2>>()
-    )).enq().unwrap();
+    let mut bdy_handles = (0..bdy.len())
+      .map(|i|Uint2::new(0,i as u32))
+      .collect::<Vec<Uint2>>();
+    self.bdy_handles.write(&bdy_handles).enq().unwrap();
+      // prepare and enqueue calculation of cell keys
+    k.reduce_pos_min(n);
+    let compute_bdy_cell_keys_kernel = pro_que.kernel_builder("compute_cell_keys")
+      .arg(&self.pos_min)
+      .arg(KERNEL_SUPPORT as f32)
+      .arg(&self.bdy)
+      .arg(&self.bdy_handles)
+      .arg(bdy.len() as u32)
+      .global_work_size(bdy.len())
+      .build().unwrap();
+    unsafe { compute_bdy_cell_keys_kernel.enq().unwrap(); }
+    self.bdy_handles.read(&mut bdy_handles).enq().unwrap();
+    // sort bdy by cell keys
+    bdy_handles.sort_unstable_by_key(|h| h[0]);
+    let mut bdy_sorted = bdy.clone();
+    // use cell keys to resort bdy and bdy_handles
+    for (i, h) in bdy_handles.iter().enumerate(){
+      bdy_sorted[i] = bdy[h[1] as usize]
+    }
+    bdy_handles.iter_mut().enumerate().for_each(|(i,h)| h[1] = i as u32);
+    // write back sorted bdy and bdy_handles
+    self.bdy.write(&*bdy_sorted).enq().unwrap();
+    self.bdy_handles.write(&bdy_handles).enq().unwrap();
+    // assert that cell keys in handles are sorted and indices into bdy are 0,1,...,n_bdy
+    for (i, h) in bdy_handles.iter().enumerate() {
+      if i>0{
+        assert!(h[0]>= bdy_handles[i-1][0]);
+        assert!(h[1] == i as u32);
+      }
+    }
   }
 }

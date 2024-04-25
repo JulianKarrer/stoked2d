@@ -19,7 +19,7 @@ const FONT_HEADING_SIZE:f32 = 25.0;
 static ICON_SIZE:Vec2 = Vec2::new(24.0, 24.0);
 
 // GUI RELATED CONSTANTS AND ATOMICS
-static ZOOM:AtomicF32 = AtomicF32::new(90.0);
+static ZOOM:AtomicF32 = AtomicF32::new(20.0);
 const ZOOM_SPEED:f32 = 1.5;
 static DRAGGING:AtomicBool = AtomicBool::new(false);
 pub const BOUNDARY_THCKNESS:f64 = 0.05;
@@ -117,21 +117,27 @@ pub fn draw_particles(graphics: &mut Graphics2D, bdy: &Vec<[f64; 2]>, timestep: 
   let z = ZOOM.load(Relaxed);
   let off = *(*DRAG_OFFSET).read();
 
-  // // draw the boundary
-  // graphics.draw_rectangle(Rectangle::new(
-  //   camera_transform(&BOUNDARY[0].to_array(), &off, z, w, h), 
-  //   camera_transform(&BOUNDARY[1].to_array(), &off, z, w, h), 
-  //   ), 
-  //   Color::WHITE
-  // );
-  graphics.draw_rectangle(Rectangle::new(
-    camera_transform(&(BOUNDARY[0]+DVec2::ONE*BOUNDARY_THCKNESS).to_array(), &off, z, w, h), 
-    camera_transform(&(BOUNDARY[1]-DVec2::ONE*BOUNDARY_THCKNESS).to_array(), &off, z, w, h), 
-    ), 
-    Color::BLACK
-  );
+  // draw the boundary
+  if !USE_GPU_BOUNDARY{
+    graphics.draw_rectangle(Rectangle::new(
+      camera_transform(&[HARD_BOUNDARY[0][0] as f64, HARD_BOUNDARY[0][1] as f64], &off, z, w, h), 
+      camera_transform(&[HARD_BOUNDARY[1][0] as f64, HARD_BOUNDARY[1][0] as f64], &off, z, w, h), 
+      ), 
+      Color::WHITE
+    );
+    graphics.draw_rectangle(Rectangle::new(
+      camera_transform(&(
+        DVec2::new(HARD_BOUNDARY[0][0] as f64, HARD_BOUNDARY[0][1] as f64)
+        +DVec2::ONE*BOUNDARY_THCKNESS).to_array(), &off, z, w, h), 
+      camera_transform(&(
+        DVec2::new(HARD_BOUNDARY[1][0] as f64, HARD_BOUNDARY[1][1] as f64)
+        -DVec2::ONE*BOUNDARY_THCKNESS).to_array(), &off, z, w, h), 
+      ), 
+      Color::BLACK
+    );
+  }
   // draw all boundary particles
-  if !cfg!(feature = "gpu"){
+  if USE_GPU_BOUNDARY {
     let boundary_colour = Color::from_rgba(1.0, 1.0, 1.0, 0.5);
     bdy.iter().for_each(|p|{
       graphics.draw_circle(
