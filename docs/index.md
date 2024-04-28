@@ -9,4 +9,4 @@ layout: home
 Documentation, results, data and progress made in implementing an SPH fluid solver.
 
 
-  ![Screenshot of the Program](/assets/screenshot.png)
+  ![Screenshot of the Program](./assets/screenshot.png)
