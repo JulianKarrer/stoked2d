@@ -22,8 +22,8 @@ title: Stoked2D - SPH Fluid Solver
 email: juliankarrer@t-online.de
 description: >- # this means to ignore newlines until "baseurl:"
   Documentation, results, data and progress made in implementing an SPH fluid solver
-baseurl: "" # the subpath of your site, e.g. /blog
-url: "" # the base hostname & protocol for your site, e.g. http://example.com
+baseurl: "/stoked2d" # the subpath of your site, e.g. /blog
+url: "https://juliankarrer.github.io" # the base hostname & protocol for your site, e.g. http://example.com
 github_username:  JulianKarrer
 
 # Build settings
