@@ -19,6 +19,7 @@ pub fn run()->bool{
   update_densities(&state.pos, &mut state.den, &grid, &boundary);
   {  HISTORY.write().reset_and_add(&state, &grid, &boundary.pos, current_t); }
   let mut last_update_time = timestamp();
+  let mut last_gui_update_t = 0.0f64;
   while !*REQUEST_RESTART.read() {
     // wait if requested
     while *SIMULATION_TOGGLE.read() { thread::sleep(Duration::from_millis(10)); }
@@ -35,7 +36,10 @@ pub fn run()->bool{
 
     // write back the positions to the global buffer for visualization and update the FPS count
     update_fps(&mut last_update_time);
-    {  HISTORY.write().add_step(&state, &grid, current_t); }
+    if current_t - last_gui_update_t > FRAME_TIME.into(){
+      last_gui_update_t = current_t;
+      {  HISTORY.write().add_step(&state, &grid, current_t); }
+    }
   }
   *REQUEST_RESTART.write() = false;
   true
@@ -147,7 +151,7 @@ fn update_densities(pos: &[DVec2], den: &mut[f64], grid: &Grid, boundary: &Bound
       M * grid.query_index(i).iter().map(|j| 
         kernel(x_i, &pos[*j])
       ).sum::<f64>() + 
-      M * boundary.grid.query_radius(x_i, KERNEL_SUPPORT).iter().map(|j| 
+      M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
         kernel(x_i, &boundary.pos[*j])
       ).sum::<f64>();
   });
@@ -157,7 +161,7 @@ fn update_densities(pos: &[DVec2], den: &mut[f64], grid: &Grid, boundary: &Bound
 fn predict_densities(den: &mut[f64], v_star: &[DVec2], pos: &[DVec2], grid: &Grid, boundary: &Boundary, dt:f64){
   den.par_iter_mut().enumerate().for_each(|(i, rho_i)|{
     let fluid_neighbours = grid.query_index(i);
-    let boundary_neighbours = boundary.grid.query_radius(&pos[i], KERNEL_SUPPORT);
+    let boundary_neighbours = boundary.grid.query_radius(&pos[i], &boundary.pos, KERNEL_SUPPORT);
     *rho_i = 
       // density from current fluid neighbours
       M *fluid_neighbours.iter().map(|j|
@@ -207,7 +211,7 @@ fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut
       -M * grid.query_index(i).iter().map(|j| 
         (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * kernel_derivative(x_i, &pos[*j])
       ).sum::<DVec2>()
-      -M * boundary.grid.query_radius(x_i, KERNEL_SUPPORT).iter().map(|j| 
+      -M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
         (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * kernel_derivative(x_i, &boundary.pos[*j])
       ).sum::<DVec2>();
   })
@@ -225,7 +229,7 @@ fn overwrite_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc
       -M * grid.query_index(i).iter().map(|j| 
         (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * kernel_derivative(x_i, &pos[*j])
       ).sum::<DVec2>()
-      -M * boundary.grid.query_radius(x_i, KERNEL_SUPPORT).iter().map(|j| 
+      -M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
         (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * kernel_derivative(x_i, &boundary.pos[*j])
       ).sum::<DVec2>();
   })
