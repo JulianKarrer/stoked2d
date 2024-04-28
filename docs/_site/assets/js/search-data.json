@@ -1,0 +1,51 @@
+{"0": {
+    "doc": "Testing Kernels and Datastructures",
+    "title": "Testing the Kernel Function",
+    "content": ". | Kernel properties are tested . | Integrals are implemented with Monte Carlo, \\(N=10^{6}\\) | Accepted error is \\(\\epsilon = 10^{-3}\\) | All other tests are run \\(N\\) times with random \\(\\mathbf{\\vec{x_i}, \\vec{x_j}}\\) | . \\[\\begin{align} &amp;W(\\lVert \\mathbf{\\vec{x_i} - \\vec{x_j}} \\rVert, \\kappa) &gt; 0&amp;&amp; \\text{Positivity}\\\\ \\forall r&gt;\\kappa:\\quad &amp;W(r, \\kappa) = 0,\\quad \\nabla W(r, \\kappa) = 0&amp;&amp;\\text{Compact support}\\\\ &amp;W_{ij} = W_{ji}&amp;&amp; \\text{Symmetry}\\\\ &amp;\\nabla W_{ij} = \\nabla W_{ji} &amp;&amp;\\text{Derivative Antisymmetry}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa)\\,dV = 1&amp;&amp;\\text{Kernel Integral}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;\\nabla W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa)\\,dV = \\mathbf{\\vec{0}}&amp;&amp;\\text{Kernel Derivative Integral}\\\\ &amp;\\nabla W_{ii} = 0 &amp;&amp;\\text{Kernel Derivative at Zero is Zero}\\\\ \\end{align}\\] | For ideal sampling, where \\(\\kappa = 2h\\), \\(h\\) is the particle spacing a regular grid is used: . \\[\\begin{align} \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa) = \\frac{1}{h^2}&amp;&amp;\\text{Integral is Density}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;\\nabla W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa) = \\mathbf{\\vec{0}}&amp;&amp;\\text{Derivative Integral is Zero}\\\\ \\end{align}\\] | One test fails? For ideal sampling: . \\[\\begin{align} \\sum_j \\left(\\mathbf{(\\vec{x}_i - \\vec{x}_j)} \\odot \\nabla W_{ij} \\right) = -\\frac{1}{V} \\cdot \\mathbf{\\vec{1}} \\end{align}\\] | All other tests are successful: . | . ",
+    "url": "/stoked2d/week1a/#testing-the-kernel-function",
+    
+    "relUrl": "/week1a/#testing-the-kernel-function"
+  },"1": {
+    "doc": "Testing Kernels and Datastructures",
+    "title": "Use of alternative Kernels",
+    "content": ". | ✅ 2D Cubic Spline Kernel for \\(\\kappa = 2h,\\, \\alpha = \\frac{5}{14 \\pi h^2}, \\, q=\\lVert\\mathbf{\\vec{x}}_{ij}\\rVert\\) : . \\[W(\\mathbf{\\vec{x}}_{ij}) := \\alpha \\begin{cases} (2-q)^3 - 4(1-q)^3&amp; 0 \\leq q &lt; 1\\\\ (2-q)^3 &amp; 1 \\leq q &lt; 2\\\\ 0 &amp; q \\ge 2 \\end{cases}\\] \\[\\nabla W(\\mathbf{\\vec{x}}_{ij}) := \\alpha \\frac{\\mathbf{\\vec{x}}_{ij}}{\\lVert\\mathbf{\\vec{x}}_{ij}\\rVert h}\\begin{cases} -3(2-q)^2 +12 (1-q)^2&amp; 0 \\leq q &lt; 1\\\\ -3(2-q)^2 &amp; 1 \\leq q &lt; 2\\\\ 0 &amp; q \\ge 2 \\end{cases}\\] | . ",
+    "url": "/stoked2d/week1a/#use-of-alternative-kernels",
+    
+    "relUrl": "/week1a/#use-of-alternative-kernels"
+  },"2": {
+    "doc": "Testing Kernels and Datastructures",
+    "title": "Improving the Acceleration Datatructure",
+    "content": "+400 FPS@N=4k / +60% . | Filter by \\(\\lVert \\mathbf{\\vec{x_i} - \\vec{x_j}} \\rVert \\le \\kappa\\) when building neighbour lists instead of saving supersets with all particles in neighbouring grid cells. ~15%@N=4k | Binary search directly in particle handles, don’t build a compact list of filled cells like suggested in Compressed Neighbor Lists for SPH (???). ~30%@N=4k | Use an XYZ curve that is faster to compute than a Morton Code (?) ~15%@N=4k | . ",
+    "url": "/stoked2d/week1a/#improving-the-acceleration-datatructure",
+    
+    "relUrl": "/week1a/#improving-the-acceleration-datatructure"
+  },"3": {
+    "doc": "Testing Kernels and Datastructures",
+    "title": "Testing the Acceleration Datatructure",
+    "content": "For \\(\\kappa \\in [0.9, 1.0, 1.1], \\, N=5000\\) particles are randomly distributed in \\([-10;10]\\) and the neighbour sets for each compared to the ones computed per brute force in \\(\\mathcal{O}(n^2)\\). After 10 repetitions, success is reported: . ",
+    "url": "/stoked2d/week1a/#testing-the-acceleration-datatructure",
+    
+    "relUrl": "/week1a/#testing-the-acceleration-datatructure"
+  },"4": {
+    "doc": "Testing Kernels and Datastructures",
+    "title": "Testing Kernels and Datastructures",
+    "content": " ",
+    "url": "/stoked2d/week1a/",
+    
+    "relUrl": "/week1a/"
+  },"5": {
+    "doc": "Boundary Handling",
+    "title": "Towards a single non-uniform layer",
+    "content": " ",
+    "url": "/stoked2d/week1b/#towards-a-single-non-uniform-layer",
+    
+    "relUrl": "/week1b/#towards-a-single-non-uniform-layer"
+  },"6": {
+    "doc": "Boundary Handling",
+    "title": "Boundary Handling",
+    "content": " ",
+    "url": "/stoked2d/week1b/",
+    
+    "relUrl": "/week1b/"
+  }
+}
