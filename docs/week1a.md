@@ -52,7 +52,7 @@ nav_order: 0
 
 - All other tests are successful:
 
-  ![Screenshot of the Kernel test](./assets/week1/tests_screenshot.png)
+  ![Screenshot of the Kernel test]({{'/assets/week1/tests_screenshot.png' | relative_url}})
 
 
 ## Use of alternative Kernels
@@ -86,4 +86,4 @@ nav_order: 0
 For $$\kappa \in [0.9, 1.0, 1.1], \, N=5000$$ particles are randomly distributed in $$[-10;10]$$ and the neighbour sets for each compared to the ones computed per brute force in $$\mathcal{O}(n^2)$$. After 10 repetitions, success is reported:
 
 
-![Screenshot of the Datastructure Test](./assets/week1/datastructure_test_screenshot.png)
+![Screenshot of the Datastructure Test]({{'/assets/week1/datastructure_test_screenshot.png' | relative_url}})
