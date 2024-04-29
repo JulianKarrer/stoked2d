@@ -10,6 +10,7 @@ use ocl::prm::Float2;
 use simulation::{AtomicPressureEquation, AtomicSolver};
 use speedy2d::window::{WindowCreationOptions, WindowPosition};
 use speedy2d::Window;
+use sph::SphKernel;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::{atomic::AtomicU32, Arc};
@@ -45,24 +46,31 @@ const VELOCITY_EPSILON: f64 = 0.00001;
 
 // SIMULATION RELATED CONSTANTS AND ATOMICS
 lazy_static! {
-    static ref THREADS:usize = available_parallelism().unwrap().get();
-
-    // small container
-    static ref BOUNDARY:[DVec2;2] = [DVec2::new(-3.0,-2.0), DVec2::new(3.0,2.0)];
-    static ref FLUID:[DVec2;2] = [DVec2::new(-3.0+H*1.,-2.0+H*1.), DVec2::new(0.0-H,-0.)];
-
-
-    static ref HARD_BOUNDARY:[Float2;2] = [
-        Float2::new(BOUNDARY[0].x as f32-(BOUNDARY_LAYER_COUNT+10) as f32*H as f32,BOUNDARY[0].y as f32-(BOUNDARY_LAYER_COUNT+10) as f32*H as f32),
-        Float2::new(BOUNDARY[1].x as f32+(BOUNDARY_LAYER_COUNT+10) as f32*H as f32,BOUNDARY[1].y as f32+(BOUNDARY_LAYER_COUNT+10) as f32*H as f32)
+    static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-3.0, -2.0), DVec2::new(3.0, 2.0)];
+    static ref FLUID: [DVec2; 2] = [
+        DVec2::new(-3.0 + H * 1., -2.0 + H * 1.),
+        DVec2::new(0.0 - H, -0.)
     ];
-    static ref HISTORY:Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
-    static ref SOLVER:AtomicSolver = AtomicSolver::new(simulation::Solver::SESPH);
-    static ref RESORT_ATTRIBUTES_EVERY_N:Arc<RwLock<u32>> = Arc::new(RwLock::new(4));
-    static ref BDY_MIN:Float2 = HARD_BOUNDARY[0] - Float2::new(
-        (BOUNDARY_LAYER_COUNT+20) as f32*H as f32,
-        (BOUNDARY_LAYER_COUNT+20) as f32*H as f32,
-    );
+    static ref HARD_BOUNDARY: [Float2; 2] = [
+        Float2::new(
+            BOUNDARY[0].x as f32 - (BOUNDARY_LAYER_COUNT + 10) as f32 * H as f32,
+            BOUNDARY[0].y as f32 - (BOUNDARY_LAYER_COUNT + 10) as f32 * H as f32
+        ),
+        Float2::new(
+            BOUNDARY[1].x as f32 + (BOUNDARY_LAYER_COUNT + 10) as f32 * H as f32,
+            BOUNDARY[1].y as f32 + (BOUNDARY_LAYER_COUNT + 10) as f32 * H as f32
+        )
+    ];
+    static ref HISTORY: Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
+    static ref SOLVER: AtomicSolver = AtomicSolver::new(simulation::Solver::SESPH);
+    static ref SPH_KERNELS: Arc<RwLock<SphKernel>> = Arc::new(RwLock::new(SphKernel::default()));
+    static ref RESORT_ATTRIBUTES_EVERY_N: Arc<RwLock<u32>> = Arc::new(RwLock::new(4));
+    static ref BDY_MIN: Float2 = HARD_BOUNDARY[0]
+        - Float2::new(
+            (BOUNDARY_LAYER_COUNT + 20) as f32 * H as f32,
+            (BOUNDARY_LAYER_COUNT + 20) as f32 * H as f32,
+        );
+    static ref THREADS: usize = available_parallelism().unwrap().get();
 }
 
 /// The gravitational constant
@@ -71,8 +79,6 @@ static GRAVITY: AtomicF64 = AtomicF64::new(-9.807);
 const H: f64 = 0.04;
 const BOUNDARY_LAYER_COUNT: usize = 3;
 const USE_GPU_BOUNDARY: bool = true;
-// const BOUNDARY_LAYER_COUNT:usize = 1;
-// const USE_GPU_BOUNDARY:bool = false;
 
 // -> Consequence of kernel support radius 2H:
 const KERNEL_SUPPORT: f64 = 2.0 * H;

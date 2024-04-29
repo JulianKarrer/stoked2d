@@ -1,4 +1,4 @@
-use crate::{*, sph::{kernel, kernel_derivative}, datastructure::Grid};
+use crate::{*, sph::KernelType, datastructure::Grid};
 use std::{fmt::Debug, time::Duration};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
 use atomic_enum::atomic_enum;
@@ -16,7 +16,7 @@ pub fn run()->bool{
   let mut current_t = 0.0;
   let mut since_resort = 0;
   // reset history and add first timestep
-  update_densities(&state.pos, &mut state.den, &grid, &boundary);
+  update_densities(&state.pos, &mut state.den, &grid, &boundary, &KernelType::GaussSpline3);
   {  HISTORY.write().reset_and_add(&state, &grid, &boundary.pos, current_t); }
   let mut last_update_time = timestamp();
   let mut last_gui_update_t = 0.0f64;
@@ -31,7 +31,8 @@ pub fn run()->bool{
     grid.update_grid(&state.pos, KERNEL_SUPPORT);
 
     // perform an update step using the selected fluid solver
-    SOLVER.load(Relaxed).solve(&mut state, &grid, &mut current_t, &boundary);
+    let kernels = {*SPH_KERNELS.read()};
+    SOLVER.load(Relaxed).solve(&mut state, &grid, &mut current_t, &boundary, &kernels);
     enforce_boundary_conditions(&mut state.pos, &mut state.vel, &mut state.acc);
 
     // write back the positions to the global buffer for visualization and update the FPS count
@@ -49,49 +50,49 @@ pub fn run()->bool{
 // SOLVERS AVAILABLE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Perform a simulation update step using the basic SESPH solver
-fn sesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary){
+fn sesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary, knls:&SphKernel){
   // update densities and pressures
-  update_densities(&state.pos, &mut state.den, grid, boundary);
+  update_densities(&state.pos, &mut state.den, grid, boundary, &knls.density);
   update_pressures(&state.den, &mut state.prs);
   // apply external forces
-  apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid);
+  apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid, &knls.viscosity);
   // apply pressure forces
-  add_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid, boundary);
+  add_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid, boundary, &knls.pressure);
   // perform a time step
   let dt = update_dt(&state.vel, current_t);
   time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
 }
 
 /// Perform a simulation update step using a SESPH solver with splitting
-fn ssesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary){
+fn ssesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary, knls:&SphKernel){
   // apply external forces
-  apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid);
+  apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid, &knls.viscosity);
   // predict velocities and densities based on non-pressure accelerations
   let dt = update_dt(&state.vel, current_t);
   time_step_explicit_euler_one_quantity(&mut state.vel, &state.acc, dt);
-  predict_densities(&mut state.den, &state.vel, &state.pos, grid, boundary, dt);
+  predict_densities(&mut state.den, &state.vel, &state.pos, grid, boundary, dt, &knls.density);
   // calculate pressure forces/accelerations from the predicted densities
   update_pressures(&state.den, &mut state.prs);
-  overwrite_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid, boundary);
+  overwrite_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid, boundary, &knls.pressure);
   // refine the predicted velocity using this pressure acceleration and update positions
   time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
 }
 
 
 /// Perform a simulation update step using a SESPH solver with splitting
-fn isesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary){
+fn isesph(state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary, knls:&SphKernel){
   // apply external forces
-  apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid);
+  apply_gravity_and_viscosity(&state.pos, &state.vel, &mut state.acc, &state.den, grid, &knls.viscosity);
   // predict velocities and densities based on non-pressure accelerations
   let dt = update_dt(&state.vel, current_t);
   time_step_explicit_euler_one_quantity(&mut state.vel, &state.acc, dt);
   let rho_zero = RHO_ZERO.load(Relaxed);
   let max_rho_dev = MAX_RHO_DEVIATION.load(Relaxed);
   loop{
-    predict_densities(&mut state.den, &state.vel, &state.pos, grid, boundary, dt);
+    predict_densities(&mut state.den, &state.vel, &state.pos, grid, boundary, dt, &knls.density);
     // calculate pressure forces/accelerations from the predicted densities
     update_pressures(&state.den, &mut state.prs);
-    overwrite_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid, boundary);
+    overwrite_pressure_accelerations(&state.pos, &state.den, &state.prs, &mut state.acc, grid, boundary, &knls.pressure);
     // refine the velocity prediction using the predicted pressure accelerations
     time_step_explicit_euler_one_quantity(&mut state.vel, &state.acc, dt);
     if average_val(&state.den)/rho_zero-1.0 < max_rho_dev || *REQUEST_RESTART.read() {
@@ -128,7 +129,7 @@ pub fn update_fps(previous_timestamp: &mut u128){
 }
 
 /// Apply external forces such as gravity and viscosity, overwriting the accelerations vec
-fn apply_gravity_and_viscosity(pos: &[DVec2], vel: &[DVec2], acc: &mut[DVec2], den: &[f64], grid: &Grid){
+fn apply_gravity_and_viscosity(pos: &[DVec2], vel: &[DVec2], acc: &mut[DVec2], den: &[f64], grid: &Grid, knl:&KernelType){
   // account for gravity
   let acc_g = DVec2::Y * GRAVITY.load(Relaxed);
   // calculate viscosity
@@ -137,7 +138,7 @@ fn apply_gravity_and_viscosity(pos: &[DVec2], vel: &[DVec2], acc: &mut[DVec2], d
     let vis:DVec2 = nu * 2.0 * grid.query_index(i).iter().map(|j|{
       let x_i_j = *p-pos[*j];
       let v_i_j = *v-vel[*j];
-      M/den[*j] * (v_i_j).dot(x_i_j)/(x_i_j.length_squared() + 0.01*H*H) * kernel_derivative(p, &pos[*j])
+      M/den[*j] * (v_i_j).dot(x_i_j)/(x_i_j.length_squared() + 0.01*H*H) * knl.dw(p, &pos[*j])
     }).reduce(|a,b|a+b).unwrap_or(DVec2::ZERO);
     assert!(vis.is_finite());
     *a = acc_g + vis
@@ -145,40 +146,40 @@ fn apply_gravity_and_viscosity(pos: &[DVec2], vel: &[DVec2], acc: &mut[DVec2], d
 }
 
 /// Update the densities at each particle
-fn update_densities(pos: &[DVec2], den: &mut[f64], grid: &Grid, boundary: &Boundary){
+fn update_densities(pos: &[DVec2], den: &mut[f64], grid: &Grid, boundary: &Boundary, knl:&KernelType){
   pos.par_iter().enumerate().zip(den).for_each(|((i, x_i), rho_i)|{
     *rho_i = 
       M * grid.query_index(i).iter().map(|j| 
-        kernel(x_i, &pos[*j])
+        knl.w(x_i, &pos[*j])
       ).sum::<f64>() + 
       M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
-        kernel(x_i, &boundary.pos[*j])
+        knl.w(x_i, &boundary.pos[*j])
       ).sum::<f64>();
   });
 }
 
 /// Predict densities based on current positions and predicted velocities
-fn predict_densities(den: &mut[f64], v_star: &[DVec2], pos: &[DVec2], grid: &Grid, boundary: &Boundary, dt:f64){
+fn predict_densities(den: &mut[f64], v_star: &[DVec2], pos: &[DVec2], grid: &Grid, boundary: &Boundary, dt:f64, knl:&KernelType){
   den.par_iter_mut().enumerate().for_each(|(i, rho_i)|{
     let fluid_neighbours = grid.query_index(i);
     let boundary_neighbours = boundary.grid.query_radius(&pos[i], &boundary.pos, KERNEL_SUPPORT);
     *rho_i = 
       // density from current fluid neighbours
       M *fluid_neighbours.iter().map(|j|
-        kernel(&pos[i], &pos[*j])
+        knl.w(&pos[i], &pos[*j])
       ).sum::<f64>()
       // density from predicted fluid neighbours
       + dt * M * fluid_neighbours.iter().map(|j|
-        (v_star[i] - v_star[*j]).dot(kernel_derivative(&pos[i], &pos[*j]))
+        (v_star[i] - v_star[*j]).dot(knl.dw(&pos[i], &pos[*j]))
       ).sum::<f64>()
       
       // density from current boundary neighbours
       + M * boundary_neighbours.iter().map(|j|
-        kernel(&pos[i], &boundary.pos[*j])
+        knl.w(&pos[i], &boundary.pos[*j])
       ).sum::<f64>()
       // density from predicted boundary neighbours
       + dt * M * boundary_neighbours.iter().map(|j|
-        (v_star[i]).dot(kernel_derivative(&pos[i], &boundary.pos[*j]))
+        (v_star[i]).dot(knl.dw(&pos[i], &boundary.pos[*j]))
       ).sum::<f64>();
   })
 }
@@ -201,7 +202,7 @@ fn update_pressures(den: &[f64], prs:&mut[f64]){
 
 /// Compute pressure accelerations from the momentum-preserving SPH approximation of the density gradient,
 /// adding the result to the current accelerations
-fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut[DVec2], grid: &Grid, boundary: &Boundary){
+fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut[DVec2], grid: &Grid, boundary: &Boundary, knl:&KernelType){
   let rho_0 = RHO_ZERO.load(Relaxed);
   let one_over_rho_0_squared = 1.0/(rho_0*rho_0);
   pos.par_iter().enumerate().zip(prs).zip(den).zip(acc)
@@ -209,17 +210,17 @@ fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut
     let p_i_over_rho_i_squared = p_i/(rho_i*rho_i);
     *acc += 
       -M * grid.query_index(i).iter().map(|j| 
-        (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * kernel_derivative(x_i, &pos[*j])
+        (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * knl.dw(x_i, &pos[*j])
       ).sum::<DVec2>()
       -M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
-        (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * kernel_derivative(x_i, &boundary.pos[*j])
+        (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * knl.dw(x_i, &boundary.pos[*j])
       ).sum::<DVec2>();
   })
 }
 
 /// Compute pressure accelerations from the momentum-preserving SPH approximation of the density gradient,
 /// overwriting the current accelerations
-fn overwrite_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut[DVec2], grid: &Grid, boundary: &Boundary){
+fn overwrite_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut[DVec2], grid: &Grid, boundary: &Boundary, knl:&KernelType){
   let rho_0 = RHO_ZERO.load(Relaxed);
   let one_over_rho_0_squared = 1.0/rho_0*rho_0;
   pos.par_iter().enumerate().zip(prs).zip(den).zip(acc)
@@ -227,10 +228,10 @@ fn overwrite_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc
     let p_i_over_rho_i_squared = p_i/(rho_i*rho_i);
     *acc = 
       -M * grid.query_index(i).iter().map(|j| 
-        (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * kernel_derivative(x_i, &pos[*j])
+        (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * knl.dw(x_i, &pos[*j])
       ).sum::<DVec2>()
       -M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
-        (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * kernel_derivative(x_i, &boundary.pos[*j])
+        (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * knl.dw(x_i, &boundary.pos[*j])
       ).sum::<DVec2>();
   })
 }
@@ -282,11 +283,11 @@ impl Solver{
   /// uninitialized garbage. 
   /// 
   /// The grid can also be assumed to be accurate.
-  fn solve(&self, state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary){
+  fn solve(&self, state: &mut Attributes, grid: &Grid, current_t: &mut f64, boundary: &Boundary, knls:&SphKernel){
     match self {
-      Solver::SESPH => sesph(state, grid, current_t, boundary),
-      Solver::SSESPH => ssesph(state, grid, current_t, boundary),
-      Solver::ISESPH => isesph(state, grid, current_t, boundary),
+      Solver::SESPH => sesph(state, grid, current_t, boundary, knls),
+      Solver::SSESPH => ssesph(state, grid, current_t, boundary, knls),
+      Solver::ISESPH => isesph(state, grid, current_t, boundary, knls),
     }
   }
 }
