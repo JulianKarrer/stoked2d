@@ -7,47 +7,10 @@ nav_order: 0
 <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 
-# Testing the Kernel Function
 
+# Implemented Kernel Functions
 
-- Kernel properties are tested
-  - Integrals are implemented with Monte Carlo, $$N=10^{8}$$ on $$\Omega=[-2.1h; 2.1h]$$
-  - Accepted error is $$\epsilon = 10^{-3}$$
-  - All other tests are run $$N$$ times with random $$\mathbf{\vec{x_i}, \vec{x_j}}$$
-
-  $$\begin{align}
-
-  &W(\lVert \mathbf{\vec{x_i} - \vec{x_j}} \rVert, \kappa)  > 0&& \text{Positivity}\\
-
-  \forall r>\kappa:\quad &W(r, \kappa)  = 0,\quad \nabla W(r, \kappa)  = 0&&\text{Compact support}\\
-
-  &W_{ij} = W_{ji}&& \text{Symmetry}\\
-
-  &\nabla W_{ij} = \nabla W_{ji} &&\text{Derivative Antisymmetry}\\
-
-  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa)\,dV = 1&&\text{Kernel Integral}\\
-
-  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&\nabla W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa)\,dV = \mathbf{\vec{0}}&&\text{Kernel Derivative Integral}\\
-
-
-  &\nabla W_{ii} = 0 &&\text{Kernel Derivative at Zero is Zero}\\
-
-  \end{align}$$
-
-- For ideal sampling, where $$\kappa = 2h$$, $$h$$ is the particle spacing a regular grid is used:
-
-  $$\begin{align}
-  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \frac{1}{h^2}&&\text{Integral is Density}\\
-
-  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&\nabla W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \mathbf{\vec{0}}&&\text{Derivative Integral is Zero}\\
-
-  \sum_j &\left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}&&\text{Density from projected Derivative}
-  \end{align}$$
-
-
-# Alternative Kernel Functions
-
-- ✅ [2D Cubic Spline Kernel](https://cg.informatik.uni-freiburg.de/course_notes/sim_03_particleFluids.pdf){:target="_blank"} for $$\kappa = 2h,\, \alpha = \frac{5}{14 \pi h^2}, \, q=\lVert\mathbf{\vec{x}}_{ij}\rVert$$ :
+- [2D Cubic Spline Kernel](https://cg.informatik.uni-freiburg.de/course_notes/sim_03_particleFluids.pdf){:target="_blank"} for $$\kappa = 2h,\, \alpha = \frac{5}{14 \pi h^2}, \, r=\lVert\mathbf{\vec{x}}_{ij}\rVert, \, q=\frac{r}{h}$$ :
   
   $$W_{\text{spline}}(\mathbf{\vec{x}}_{ij}) := \alpha \begin{cases}
   (2-q)^3 - 4(1-q)^3& 0 \leq q < 1\\
@@ -65,28 +28,110 @@ nav_order: 0
   - Vanishing gradients as $$r\to 0$$ problematic for pressure computation? 
 
 
-- ❓ [2D Spiky Kernel](https://cs418.cs.illinois.edu/website/text/sph.html#kernel-functions){:target="_blank"} 
+- [2D Spiky Kernel](https://cs418.cs.illinois.edu/website/text/sph.html#kernel-functions){:target="_blank"} 
   suggested by [Müller, Charypar, Gross](https://matthias-research.github.io/pages/publications/sca03.pdf){:target="_blank"} 
   after [Desbrun, Cani](http://www.geometry.caltech.edu/pubs/DC_EW96.pdf){:target="_blank"} 
-  [normalized for 2D](https://www.diva-portal.org/smash/get/diva2:573583/FULLTEXT01.pdf){:target="_blank"}    for $$\kappa = 2h,\, \alpha = -\frac{10}{\pi\kappa^5}, \, q=\lVert\mathbf{\vec{x}}_{ij}\rVert$$ :
+  [normalized for 2D](https://www.diva-portal.org/smash/get/diva2:573583/FULLTEXT01.pdf){:target="_blank"}    for $$\kappa = 2h,\, \alpha = -\frac{10}{\pi\kappa^5}, \, r=\lVert\mathbf{\vec{x}}_{ij}\rVert$$ :
   
-  $$\nabla W_{\text{spiky}}(\mathbf{\vec{x}}_{ij}) := \alpha \frac{\mathbf{\vec{x}}_{ij}}{\lVert\mathbf{\vec{x}}_{ij}\rVert h}\begin{cases}
-    -3(2-q)^2 +12 (1-q)^2& 0 \leq q < 1\\
-    -3(2-q)^2 & 1 \leq q < 2\\
-    0       & q \ge 2
+  $$W_{\text{spiky}}(\mathbf{\vec{x}}_{ij}) := \alpha \frac{\mathbf{\vec{x}}_{ij}}{\lVert\mathbf{\vec{x}}_{ij}\rVert}\begin{cases}
+    (\kappa-r)^3& 0 \leq r \leq  \kappa\\
+    0 & \text{otherwise}
     \end{cases}$$
 
-    - Much better incompressibility, when derivative is used no boundary penetration!
+  $$\nabla W_{\text{spiky}}(\mathbf{\vec{x}}_{ij}) := \alpha \frac{\mathbf{\vec{x}}_{ij}}{\lVert\mathbf{\vec{x}}_{ij}\rVert}\begin{cases}
+    (\kappa-r)^2& 0 < r \leq  \kappa\\
+    0 & \text{otherwise}
+    \end{cases}$$
+
+    - Much better incompressibility, when gradient is used no boundary penetration!
     - Unrealistic viscous behaviour?
+
+- [2D Double Cosine Kernel](https://www.sciencedirect.com/science/article/pii/S0307904X13007920?ref=pdf_download&fr=RR-2&rr=87c843287c471e6e){:target="_blank"} 
+  proposed by [Yang, Peng,Liu]
+  for $$\kappa = 2h,\, \alpha = \frac{\pi}{(3\pi^2-16)(\kappa)^2}, \, r=\lVert\mathbf{\vec{x}}_{ij}\rVert, \, s=\frac{r}{h}$$:
+  
+    $$W_{\text{cos}}(\mathbf{\vec{x}}_{ij}) := \alpha \begin{cases}
+    4\cos(\frac{\pi}{2}s)+\cos(\pi s)+3& 0 \leq s \leq  2\\
+    0 & \text{otherwise}
+    \end{cases}$$
+
+
+    $$\nabla W_{\text{cos}}(\mathbf{\vec{x}}_{ij}) := \alpha \frac{\mathbf{\vec{x}}_{ij}}{\lVert\mathbf{\vec{x}}_{ij}\rVert}\begin{cases}
+    -2\frac{\tau}{\kappa}\sin(\frac{\pi}{2}s)-\frac{\tau}{\kappa}\sin(\pi s)& 0 \leq s \leq  2\\
+    0 & \text{otherwise}
+    \end{cases}$$
+
+
+# Kernel Function Plots
+### Kernel Functions for $$\kappa = 2h,\, h=1$$
+<div style="display: flex">
+  {% include plot_kernels.html %}
+</div>
+
+- Surprisingly equal integral? Projection to 1D may be at fault, outer regions weigh quadratically more in 2D integral
+
+### Magnitude of Kernel Gradient over $$\mathbf{\vec{x}}_{ij}$$ for Cubic Spline and Spiky Kernel:
+<div style="display: flex;">
+  <div style="width:50%">
+  {% include plot_kernel_derivatives_cubic_gauss_spline.html %}
+  </div>
+  <div style="width:50%">
+  {% include plot_kernel_derivatives_spiky_kernel.html %}
+  </div>
+</div>
+
+
+# Testing the Kernel Function
+
+- Kernel properties are tested
+  - Integrals are implemented with Monte Carlo, $$N=10^{8}$$ on $$\Omega=[-2.1h; 2.1h]$$ 
+  - Accepted error is $$\epsilon = 10^{-3}$$ 
+  - They are checked again with Riemann sums of $$n=10^4,\, \epsilon=10^{-9}$$
+  - All other tests are run $$N$$ times with random $$\mathbf{\vec{x_i}, \vec{x_j}}$$
+
+  $$\begin{align}
+
+  &W(\lVert \mathbf{\vec{x_i} - \vec{x_j}} \rVert, \kappa)  > 0&& \text{Positivity}\\
+
+  \forall r>\kappa:\quad &W(r, \kappa)  = 0,\quad \nabla W(r, \kappa)  = 0&&\text{Compact support}\\
+
+  &W_{ij} = W_{ji}&& \text{Symmetry}\\
+
+  &\nabla W_{ij} = \nabla W_{ji} &&\text{Gradient Antisymmetry}\\
+
+  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa)\,dV = 1&&\text{Kernel Integral}\\
+
+  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&\nabla W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa)\,dV = \mathbf{\vec{0}}&&\text{Kernel Gradient Integral}\\
+
+
+  &\nabla W_{ii} = 0 &&\text{Kernel Gradient at Zero is Zero}\\
+
+  \end{align}$$
+
+- For ideal sampling, where $$\kappa = 2h$$, $$h$$ is the particle spacing a regular grid is used:
+
+  $$\begin{align}
+  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \frac{1}{h^2}&&\text{Integral is Density}\\
+
+  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&\nabla W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \mathbf{\vec{0}}&&\text{Gradient Integral is Zero}\\
+
+  \sum_j &\left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}&&\text{Density from Gradient}
+  \end{align}$$
+
+- On a $$100\times 100$$ regular grid and a random grid, the consistency of each $$\nabla W$$ is tested by comparing to a $$\mathcal{O}(\Delta x^4)$$ [central difference](https://www.dam.brown.edu/people/alcyew/handouts/numdiff.pdf){:target="_blank"} of $$W$$ with an accepted error of $$1\%$$ 
+  - ❌ this fails for Cubic Spline for small $$h$$ - numerical problem at discontinuity? 
+  - ❌ always fails for Spiky kernel - smoothness too low?
+  - ✅ always passes for Double Cosine kernel
 
 ## Failed Tests
 
-Ideal Sampling: $$\sum_j \left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}$$ always fails
+❌ Ideal Sampling: $$\sum_j \left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}$$ always fails
 
 | Kernel    | Failed Tests |
 | -------- | ------- |
-| Cubic Spline  | None |
-| Spiky | Ideal Sampling: $$\int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \frac{1}{h^2}$$ off by 27.36%|
+| Cubic Spline  ❓  | $$W$$ and $$\nabla W$$: consistency with finite difference? |
+| Spiky Kernel ❌ | Ideal Sampling: $$\int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \frac{1}{h^2}$$ off by +27.36%|
+| Double Cosine  ✅  | None |
 
 
 # Improving the Acceleration Datatructure
@@ -100,7 +145,14 @@ Ideal Sampling: $$\sum_j \left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{
 
 # Testing the Acceleration Datatructure
 
-For $$\kappa \in [0.9, 1.0, 1.1], \, N=5000$$ particles are randomly distributed in $$[-10;10]$$ and the neighbour sets for each compared to the ones computed per brute force in $$\mathcal{O}(n^2)$$. After 10 repetitions, success is reported:
+For $$\kappa \in [0.9, 1.0, 1.1], \, N=5000$$ particles are randomly distributed in $$[-10;10]$$ and the neighbour sets for each compared to the ones computed per brute force in $$\mathcal{O}(n^2)$$. This is repeated 10 times. ✅ 
 
 
 ![Screenshot of the Datastructure Test]({{'/assets/week1/datastructure_test_screenshot.png' | relative_url}})
+
+# Questions
+- What does $$\sum_j \left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}$$ actually mean? Why does it always fail for ideal sampling?
+- Why did the test for the spiky kernel fail?
+- Why do the stable parameters differ so wildly from kernel to kernel?
+- Why did not producing a compact filled cell list improve neighbour search performance? (size of the system?)
+

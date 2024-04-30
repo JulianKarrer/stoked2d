@@ -406,7 +406,12 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                     ui.label("Stiffness k");
                 });
                 ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut nu).speed(0.001).max_decimals(3));
+                    ui.add(
+                        egui::DragValue::new(&mut nu)
+                            .speed(0.001)
+                            .max_decimals(3)
+                            .clamp_range(0.0..=f64::MAX),
+                    );
                     ui.label("Viscosity ν");
                 });
                 ui.horizontal(|ui| {
