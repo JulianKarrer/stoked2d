@@ -24,7 +24,6 @@ nav_order: 0
     0       & q \ge 2
     \end{cases}$$
 
-  - Boundary penetration
   - Vanishing gradients as $$r\to 0$$ problematic for pressure computation? 
 
 
@@ -43,8 +42,8 @@ nav_order: 0
     0 & \text{otherwise}
     \end{cases}$$
 
-    - Much better incompressibility, when gradient is used no boundary penetration!
     - Unrealistic viscous behaviour?
+    - Wrong density estimation for ideal sampling?
 
 - [2D Double Cosine Kernel](https://www.sciencedirect.com/science/article/pii/S0307904X13007920?ref=pdf_download&fr=RR-2&rr=87c843287c471e6e){:target="_blank"} 
   proposed by [Yang, Peng,Liu]
@@ -133,6 +132,32 @@ nav_order: 0
 | Spiky Kernel ❌ | Ideal Sampling: $$\int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \frac{1}{h^2}$$ off by +27.36%|
 | Double Cosine  ✅  | None |
 
+# Stability as an interval over stiffness $$k$$
+- Viscosity: Double Cosine Kernel
+- Pressure and Density Computations: Cubic Spline or Double Cosine
+- Instability for $$\nu=0.02, h=0.03, \lambda=0.1$$ is defined as:
+  - when a watter column of height $$3$$ in a $$3\times 3$$ box has $$\epsilon_{\rho}>5\%$$ density deviation
+  - or starts oscillating at the bottom boundary
+- Results:
+  - Double Cosine stable for $$k\in[580; 2400]$$
+  - Cubic Spline stable for $$k\in[18200; 93000]$$
+
+
+Double Cosine Kernel for $$k=580$$ and $$k=2000$$ (unstable on the left, stable on the right)
+<div style="display: flex;">
+  <div style="width:50%">
+    <video style="width:100%;" loop muted autoplay>
+      <source src="{{ '/assets/week1/w1_double_cos_col_unstable.webm' | relative_url }}" type="video/webm">
+    </video>
+  </div>
+  <div style="width:50%">
+    <video style="width:100%;" loop muted autoplay>
+      <source src="{{ '/assets/week1/w1_double_cos_col_stable.webm' | relative_url }}" type="video/webm">
+    </video>
+  </div>
+</div>
+
+
 
 # Improving the Acceleration Datatructure
  <span style="color:lightgreen">+400 FPS@N=4k / +60%</span>
@@ -149,6 +174,18 @@ For $$\kappa \in [0.9, 1.0, 1.1], \, N=5000$$ particles are randomly distributed
 
 
 ![Screenshot of the Datastructure Test]({{'/assets/week1/datastructure_test_screenshot.png' | relative_url}})
+
+# Current State of the Project
+<div style="display: flex;">
+  <div style="width:100%">
+    <video style="width:100%;" loop muted autoplay>
+      <source src="{{ '/assets/week1/w1_dam_break.webm' | relative_url }}" type="video/webm">
+    </video>
+  </div>
+</div>
+
+  {% include plot_den_ham_1714580095.html %}
+
 
 # Questions
 - What does $$\sum_j \left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}$$ actually mean? Why does it always fail for ideal sampling?

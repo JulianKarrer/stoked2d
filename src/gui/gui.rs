@@ -6,7 +6,10 @@ use atomic::Atomic;
 use atomic_enum::atomic_enum;
 use egui::plot::{Line, Plot, PlotPoints};
 use egui::FontId;
-use egui_speedy2d::egui::{self, ImageButton, RichText, TextureId, Ui, Vec2};
+use egui_speedy2d::egui::{
+    self, CollapsingHeader, ImageButton, RichText, ScrollArea, TextureId, Ui, Vec2,
+};
+use plotly::Scatter;
 use speedy2d::shape::Rectangle;
 use speedy2d::window::MouseScrollDistance;
 use speedy2d::{
@@ -16,10 +19,14 @@ use speedy2d::{
     Graphics2D,
 };
 
+use self::utils::{get_timestamp, unzip_f64_2};
+
 use super::history::HistoryTimestep;
+use super::plot::standard_2d_plot;
+use super::video::VideoHandler;
 
 // GUI RELATED SETTINGS
-const FONT_HEADING_SIZE: f32 = 25.0;
+const FONT_HEADING_SIZE: f32 = 15.0;
 static ICON_SIZE: Vec2 = Vec2::new(24.0, 24.0);
 
 // GUI RELATED CONSTANTS AND ATOMICS
@@ -356,162 +363,207 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         // create fonts
         let header = FontId::proportional(FONT_HEADING_SIZE);
         // SETTINGS WINDOW
-        egui::Window::new("Settings")
+        egui::SidePanel::new(egui::panel::Side::Left, "side_panel")
             .resizable(true)
-            .show(egui_ctx, |ui| {
-                // adjust, gravity, stiffness etc.
-                ui.label(RichText::new("Simulation").font(header.clone()));
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut lambda)
-                            .speed(0.001)
-                            .max_decimals(3)
-                            .clamp_range(0.001..=1.0),
-                    );
-                    ui.label("Timestep λ");
-                });
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut init_dt)
-                            .speed(0.00001)
-                            .max_decimals(5)
-                            .clamp_range(0.00001..=1.0),
-                    );
-                    ui.label("Initial Δt");
-                });
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut max_dt)
-                            .speed(0.001)
-                            .max_decimals(3)
-                            .clamp_range(0.001..=1.0),
-                    );
-                    ui.label("Maximum Δt");
-                });
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut gravity)
-                            .speed(0.1)
-                            .max_decimals(3),
-                    );
-                    ui.label("Gravity g");
-                });
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut k)
-                            .speed(10)
-                            .max_decimals(0)
-                            .clamp_range(0.0..=f64::MAX),
-                    );
-                    ui.label("Stiffness k");
-                });
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut nu)
-                            .speed(0.001)
-                            .max_decimals(3)
-                            .clamp_range(0.0..=f64::MAX),
-                    );
-                    ui.label("Viscosity ν");
-                });
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut rho_0)
-                            .speed(0.01)
-                            .clamp_range(0.01..=100_000.0),
-                    );
-                    ui.label("Rest density ρ₀");
-                });
-                // adjust pressure solver settings
-                ui.label(RichText::new("Pressure Solver").font(header.clone()));
-                egui::ComboBox::from_label("Pressure Equation")
-                    .selected_text(format!("{:?}", pressure_eq))
-                    .show_ui(ui, |ui: &mut Ui| {
-                        ui.selectable_value(
-                            &mut pressure_eq,
-                            PressureEquation::Relative,
-                            "Relative",
+            .show_animated(egui_ctx, true, |ui| {
+                ScrollArea::new([false, true]).show(ui, |ui| {
+                    // adjust, gravity, stiffness etc.
+                    ui.label(RichText::new("Simulation").font(header.clone()));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut lambda)
+                                .speed(0.001)
+                                .max_decimals(3)
+                                .clamp_range(0.001..=1.0),
                         );
-                        ui.selectable_value(
-                            &mut pressure_eq,
-                            PressureEquation::ClampedRelative,
-                            "Clamped Relative",
-                        );
-                        ui.selectable_value(
-                            &mut pressure_eq,
-                            PressureEquation::Compressible,
-                            "Compressible",
-                        );
-                        ui.selectable_value(
-                            &mut pressure_eq,
-                            PressureEquation::ClampedCompressible,
-                            "Clamped Compressible",
-                        );
-                        ui.selectable_value(
-                            &mut pressure_eq,
-                            PressureEquation::Absolute,
-                            "Absolute",
-                        );
+                        ui.label("Timestep λ");
                     });
-                egui::ComboBox::from_label("Solver")
-                    .selected_text(format!("{:?}", solver))
-                    .show_ui(ui, |ui: &mut Ui| {
-                        ui.selectable_value(&mut solver, Solver::SESPH, "SESPH");
-                        ui.selectable_value(&mut solver, Solver::SSESPH, "SSESPH");
-                        ui.selectable_value(&mut solver, Solver::ISESPH, "ISESPH");
-                    });
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut max_delta_rho)
-                            .speed(0.01)
-                            .max_decimals(3)
-                            .clamp_range(0.01..=0.1),
-                    );
-                    ui.label("Max. |Δρ| η");
-                });
-                // adjust datastructure settings
-                ui.label(RichText::new("Datastructure").font(header.clone()));
-                ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut resort).speed(1));
-                    ui.label("Resort every N");
-                });
-                egui::ComboBox::from_label("Space filling curve")
-                    .selected_text(format!("{:?}", curve))
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut curve, GridCurve::XYZ, "XYZ");
-                        ui.selectable_value(&mut curve, GridCurve::Morton, "Morton");
-                        ui.selectable_value(&mut curve, GridCurve::Hilbert, "Hilbert");
-                    });
-                // adjust GUI
-                ui.label(RichText::new("Visualization").font(header.clone()));
-                egui::ComboBox::from_label("Visualized feature")
-                    .selected_text(format!("{:?}", feature))
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut feature, VisualizedFeature::Density, "Density");
-                        ui.selectable_value(&mut feature, VisualizedFeature::Velocity, "Velocity");
-                        ui.selectable_value(
-                            &mut feature,
-                            VisualizedFeature::SpaceFillingCurve,
-                            "Space Filling Curve",
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut init_dt)
+                                .speed(0.00001)
+                                .max_decimals(5)
+                                .clamp_range(0.00001..=1.0),
                         );
+                        ui.label("Initial Δt");
                     });
-                egui::ComboBox::from_label("Colour Scheme")
-                    .selected_text(format!("{:?}", colours))
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut colours, ColourScheme::Spectral, "Spectral");
-                        ui.selectable_value(&mut colours, ColourScheme::Rainbow, "Rainbow");
-                        ui.selectable_value(&mut colours, ColourScheme::Virdis, "Virdis");
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut max_dt)
+                                .speed(0.001)
+                                .max_decimals(3)
+                                .clamp_range(0.001..=1.0),
+                        );
+                        ui.label("Maximum Δt");
                     });
-            });
-        // PLOT WINDOW
-        egui::Window::new("Density Plot")
-            .resizable(true)
-            .show(egui_ctx, |ui| {
-                // ui.label(RichText::new("Plot").font(header.clone()));
-                let avg_den_plot: PlotPoints = { (*HISTORY).read().plot_density.clone().into() };
-                Plot::new("plot")
-                    .view_aspect(2.0)
-                    .show(ui, |plot_ui| plot_ui.line(Line::new(avg_den_plot)));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut gravity)
+                                .speed(0.1)
+                                .max_decimals(3),
+                        );
+                        ui.label("Gravity g");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut k)
+                                .speed(10)
+                                .max_decimals(0)
+                                .clamp_range(0.0..=f64::MAX),
+                        );
+                        ui.label("Stiffness k");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut nu)
+                                .speed(0.001)
+                                .max_decimals(3)
+                                .clamp_range(0.0..=f64::MAX),
+                        );
+                        ui.label("Viscosity ν");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut rho_0)
+                                .speed(0.01)
+                                .clamp_range(0.01..=100_000.0),
+                        );
+                        ui.label("Rest density ρ₀");
+                    });
+                    // adjust pressure solver settings
+                    ui.label(RichText::new("Pressure Solver").font(header.clone()));
+                    egui::ComboBox::from_label("Pressure Equation")
+                        .selected_text(format!("{:?}", pressure_eq))
+                        .show_ui(ui, |ui: &mut Ui| {
+                            ui.selectable_value(
+                                &mut pressure_eq,
+                                PressureEquation::Relative,
+                                "Relative",
+                            );
+                            ui.selectable_value(
+                                &mut pressure_eq,
+                                PressureEquation::ClampedRelative,
+                                "Clamped Relative",
+                            );
+                            ui.selectable_value(
+                                &mut pressure_eq,
+                                PressureEquation::Compressible,
+                                "Compressible",
+                            );
+                            ui.selectable_value(
+                                &mut pressure_eq,
+                                PressureEquation::ClampedCompressible,
+                                "Clamped Compressible",
+                            );
+                            ui.selectable_value(
+                                &mut pressure_eq,
+                                PressureEquation::Absolute,
+                                "Absolute",
+                            );
+                        });
+                    egui::ComboBox::from_label("Solver")
+                        .selected_text(format!("{:?}", solver))
+                        .show_ui(ui, |ui: &mut Ui| {
+                            ui.selectable_value(&mut solver, Solver::SESPH, "SESPH");
+                            ui.selectable_value(&mut solver, Solver::SSESPH, "SSESPH");
+                            ui.selectable_value(&mut solver, Solver::ISESPH, "ISESPH");
+                        });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut max_delta_rho)
+                                .speed(0.01)
+                                .max_decimals(3)
+                                .clamp_range(0.01..=0.1),
+                        );
+                        ui.label("Max. |Δρ| η");
+                    });
+                    // adjust datastructure settings
+                    ui.label(RichText::new("Datastructure").font(header.clone()));
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut resort).speed(1));
+                        ui.label("Resort every N");
+                    });
+                    egui::ComboBox::from_label("Space filling curve")
+                        .selected_text(format!("{:?}", curve))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut curve, GridCurve::XYZ, "XYZ");
+                            ui.selectable_value(&mut curve, GridCurve::Morton, "Morton");
+                            ui.selectable_value(&mut curve, GridCurve::Hilbert, "Hilbert");
+                        });
+                    // adjust GUI
+                    ui.label(RichText::new("Visualization").font(header.clone()));
+                    egui::ComboBox::from_label("Visualized feature")
+                        .selected_text(format!("{:?}", feature))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut feature,
+                                VisualizedFeature::Density,
+                                "Density",
+                            );
+                            ui.selectable_value(
+                                &mut feature,
+                                VisualizedFeature::Velocity,
+                                "Velocity",
+                            );
+                            ui.selectable_value(
+                                &mut feature,
+                                VisualizedFeature::SpaceFillingCurve,
+                                "Space Filling Curve",
+                            );
+                        });
+                    egui::ComboBox::from_label("Colour Scheme")
+                        .selected_text(format!("{:?}", colours))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut colours, ColourScheme::Spectral, "Spectral");
+                            ui.selectable_value(&mut colours, ColourScheme::Rainbow, "Rainbow");
+                            ui.selectable_value(&mut colours, ColourScheme::Virdis, "Virdis");
+                        });
+                    ui.label(RichText::new("Plots").font(header.clone()));
+
+                    // COLLAPSIBLE PLOTS
+                    CollapsingHeader::new("Density Plot")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            let avg_den_plot: PlotPoints =
+                                { (*HISTORY).read().plot_density.clone().into() };
+                            Plot::new("plot")
+                                .view_aspect(2.0)
+                                .show(ui, |plot_ui| plot_ui.line(Line::new(avg_den_plot)));
+                        });
+                    CollapsingHeader::new("Hamiltonian Plot")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            let ham_plot: PlotPoints =
+                                { (*HISTORY).read().plot_hamiltonian.clone().into() };
+                            Plot::new("plot")
+                                .view_aspect(2.0)
+                                .show(ui, |plot_ui| plot_ui.line(Line::new(ham_plot)));
+                        });
+                    if ui.button("Export Plots").clicked() {
+                        let mut plot = standard_2d_plot();
+                        let (xs, ys) = unzip_f64_2(&(*HISTORY).read().plot_density);
+                        plot.add_trace(Scatter::new(xs, ys).name("Average Density Deviation"));
+                        let (xs, ys) = unzip_f64_2(&(*HISTORY).read().plot_hamiltonian);
+                        plot.add_trace(Scatter::new(xs, ys).name("Normalized Hamiltonian"));
+                        plot.write_html(format!("analysis/plot_den_ham_{}.html", get_timestamp()));
+                    }
+                    ui.label(RichText::new("Video Export").font(header.clone()));
+
+                    // SAVE VIDEO
+                    if ui.button("Save to Video").clicked() {
+                        let hist = { (*HISTORY).read() };
+                        let x = WINDOW_SIZE[0].load(Relaxed) as usize;
+                        let y = WINDOW_SIZE[1].load(Relaxed) as usize;
+                        println!("rendering in {}x{}", x, y);
+                        let mut vid = VideoHandler::new(x, y);
+                        for time_step in &hist.steps {
+                            draw_particles(graphics, &hist.bdy, time_step, (x as f32, y as f32));
+                            let cap = graphics.capture(speedy2d::image::ImageDataType::RGB);
+                            vid.add_frame(cap.data())
+                        }
+                        vid.finish()
+                    }
+                })
             });
 
         // BOTTOM PANEL
@@ -657,6 +709,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         size_pixels: speedy2d::dimen::UVec2,
         _egui_ctx: &egui::Context,
     ) {
+        println!("resized to {} {}", size_pixels.x, size_pixels.y);
         WINDOW_SIZE[0].store(size_pixels.x, Relaxed);
         WINDOW_SIZE[1].store(size_pixels.y, Relaxed);
     }

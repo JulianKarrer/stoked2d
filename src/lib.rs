@@ -16,7 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub mod gui {
     pub mod gui;
     pub mod history;
-    // pub mod video;
+    pub mod plot;
+    pub mod video;
 }
 pub mod datastructure;
 pub mod simulation;
@@ -45,7 +46,7 @@ lazy_static! {
     static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-3.0, -3.0), DVec2::new(3.0, 3.0)];
     static ref FLUID: [DVec2; 2] = [
         DVec2::new(-3.0 + H * 1., -3.0 + H * 1.),
-        DVec2::new(0.0 - H, -0.)
+        DVec2::new(0. - H, -0.)
     ];
     static ref HARD_BOUNDARY: [Float2; 2] = [
         Float2::new(
@@ -79,7 +80,8 @@ const USE_GPU_BOUNDARY: bool = true;
 /// Viscosity constant Nu
 static NU: AtomicF64 = AtomicF64::new(0.02);
 /// Stiffness constant determining the incompressibility in the state equation
-static K: AtomicF64 = AtomicF64::new(830.0);
+static K: AtomicF64 = AtomicF64::new(1600.0);
+
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
 static MAX_DT: AtomicF64 = AtomicF64::new(0.001);
@@ -104,7 +106,7 @@ const WARP: usize = 256;
 const WORKGROUP_SIZE: usize = 256;
 
 // video settings
-const VIDEO_SIZE: (usize, usize) = (2048, 1152);
+const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
 const FRAME_TIME: f32 = 1. / 60.;
 // const FRAME_TIME:f32 = 0.001;

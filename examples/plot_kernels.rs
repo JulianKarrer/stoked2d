@@ -1,7 +1,7 @@
 use convert_case::{Case, Casing};
 use glam::DVec2;
 use plotly::{Configuration, ImageFormat, Plot, Scatter, Surface};
-use stoked2d::{sph::KernelType, KERNEL_SUPPORT};
+use stoked2d::{gui::plot::standard_2d_plot, sph::KernelType, KERNEL_SUPPORT};
 use strum::IntoEnumIterator;
 
 fn linspace(min: f64, max: f64, resolution: usize) -> Vec<f64> {
@@ -11,17 +11,6 @@ fn linspace(min: f64, max: f64, resolution: usize) -> Vec<f64> {
     (-res_half..=res_half)
         .map(|i| i as f64 * step)
         .collect::<Vec<f64>>()
-}
-
-fn standard_2d_plot() -> Plot {
-    let mut plot = Plot::new();
-    plot.set_layout(
-        plot.layout()
-            .clone()
-            .drag_mode(plotly::layout::DragMode::Pan),
-    );
-    plot.set_configuration(Configuration::new().responsive(true).scroll_zoom(true));
-    plot
 }
 
 fn standard_3d_plot() -> Plot {

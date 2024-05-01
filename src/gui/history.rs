@@ -3,8 +3,11 @@ use ocl::prm::{Float, Float2};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
-    datastructure::Grid, gpu_version::gpu::len_float2, simulation::Attributes, utils::average_val,
-    H, M,
+    datastructure::Grid,
+    gpu_version::gpu::len_float2,
+    simulation::Attributes,
+    utils::{average_val, hamiltonian},
+    BOUNDARY, H, M,
 };
 
 /// Represents the features of the simulation that are stored for visualization at any given time step
@@ -21,6 +24,7 @@ pub struct HistoryTimestep {
 pub struct History {
     pub steps: Vec<HistoryTimestep>,
     pub plot_density: Vec<[f64; 2]>,
+    pub plot_hamiltonian: Vec<[f64; 2]>,
     pub bdy: Vec<[f64; 2]>,
 }
 
@@ -29,6 +33,7 @@ impl Default for History {
         Self {
             steps: vec![HistoryTimestep::default()],
             plot_density: vec![[0.0, M / (H * H)]],
+            plot_hamiltonian: vec![],
             bdy: vec![],
         }
     }
@@ -42,6 +47,8 @@ impl History {
         self.steps.shrink_to_fit();
         self.plot_density.clear();
         self.plot_density.shrink_to_fit();
+        self.plot_hamiltonian.clear();
+        self.plot_hamiltonian.shrink_to_fit();
     }
 }
 
@@ -67,6 +74,10 @@ impl History {
         let densities = state.den.clone();
         let average_density = average_val(&densities);
         self.plot_density.push([current_t, average_density]);
+        self.plot_hamiltonian.push([
+            current_t,
+            hamiltonian(&state.pos, &state.vel, M, BOUNDARY[0].y),
+        ]);
         self.steps.push(HistoryTimestep {
             pos: state.pos.par_iter().map(|p| p.to_array()).collect(),
             current_t,
@@ -74,6 +85,16 @@ impl History {
             velocities: state.vel.par_iter().map(|v| v.length()).collect(),
             grid_handle_index: grid.handles.par_iter().map(|x| x.index as u32).collect(),
         })
+    }
+
+    pub fn add_plot_data_only(&mut self, state: &Attributes, current_t: f64) {
+        let densities = state.den.clone();
+        let average_density = average_val(&densities);
+        self.plot_density.push([current_t, average_density]);
+        self.plot_hamiltonian.push([
+            current_t,
+            hamiltonian(&state.pos, &state.vel, M, BOUNDARY[0].y),
+        ]);
     }
 }
 

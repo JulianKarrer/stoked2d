@@ -40,6 +40,8 @@ pub fn run()->bool{
     if current_t - last_gui_update_t > FRAME_TIME.into(){
       last_gui_update_t = current_t;
       {  HISTORY.write().add_step(&state, &grid, current_t); }
+    } else {
+      {  HISTORY.write().add_plot_data_only(&state,  current_t); }
     }
   }
   *REQUEST_RESTART.write() = false;
