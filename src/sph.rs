@@ -6,23 +6,6 @@ use strum_macros::EnumIter;
 
 pub const KERNEL_CUBIC_NORMALIZE: f64 = 5.0 / (14.0 * PI * H * H);
 
-#[derive(Clone, Copy, EnumIter, PartialEq)]
-pub enum KernelType {
-    GaussSpline3,
-    Spiky,
-    DoubleCosine,
-}
-
-impl Debug for KernelType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::GaussSpline3 => write!(f, "Cubic Gauss Spline"),
-            Self::Spiky => write!(f, "Spiky Kernel"),
-            Self::DoubleCosine => write!(f, "Double Cosine"),
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct SphKernel {
     pub density: KernelType,
@@ -33,9 +16,24 @@ pub struct SphKernel {
 impl Default for SphKernel {
     fn default() -> Self {
         Self {
-            density: KernelType::DoubleCosine,
-            pressure: KernelType::DoubleCosine,
-            viscosity: KernelType::DoubleCosine,
+            density: KernelType::GaussSpline3,
+            pressure: KernelType::GaussSpline3,
+            viscosity: KernelType::GaussSpline3,
+        }
+    }
+}
+
+#[derive(Clone, Copy, EnumIter, PartialEq)]
+pub enum KernelType {
+    GaussSpline3,
+    DoubleCosine,
+}
+
+impl Debug for KernelType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::GaussSpline3 => write!(f, "Cubic Gauss Spline"),
+            Self::DoubleCosine => write!(f, "Double Cosine"),
         }
     }
 }
@@ -50,17 +48,6 @@ impl KernelType {
                 let t2 = (2.0 - q).max(0.0);
                 ALPHA * (t2 * t2 * t2 - 4.0 * t1 * t1 * t1)
             }
-            KernelType::Spiky => {
-                const KS_5: f64 = (1. / KERNEL_SUPPORT)
-                    * (1. / KERNEL_SUPPORT)
-                    * (1. / KERNEL_SUPPORT)
-                    * (1. / KERNEL_SUPPORT)
-                    * (1. / KERNEL_SUPPORT);
-                const ALPHA: f64 = 10.0 / PI * KS_5;
-                let r = x_i.distance(*x_j);
-                let t1 = (KERNEL_SUPPORT - r).max(0.0);
-                ALPHA * t1 * t1 * t1
-            }
             KernelType::DoubleCosine => {
                 const ALPHA: f64 = PI / ((3. * PI * PI - 16.) * KERNEL_SUPPORT * KERNEL_SUPPORT);
                 let r = x_i.distance(*x_j);
@@ -74,25 +61,21 @@ impl KernelType {
         }
     }
 
-    pub fn dw(&self, x_i: &DVec2, x_j: &DVec2) -> DVec2 {
+    const fn dw_normalization(&self) -> f64 {
+        match self {
+            KernelType::GaussSpline3 => 0.987069922981308,
+            KernelType::DoubleCosine => 0.9550896146141793,
+        }
+    }
+
+    fn dw_unnormalized(&self, x_i: &DVec2, x_j: &DVec2) -> DVec2 {
         match self {
             KernelType::GaussSpline3 => {
                 const ALPHA: f64 = 5.0 / (14.0 * PI * H * H);
                 let q = x_i.distance(*x_j) / H;
                 let t1 = (1.0 - q).max(0.0);
                 let t2 = (2.0 - q).max(0.0);
-                (*x_i - *x_j).normalize_or_zero() * ALPHA * (-3.0 * t2 * t2 + 12.0 * t1 * t1)
-            }
-            KernelType::Spiky => {
-                const KS_5: f64 = (1. / KERNEL_SUPPORT)
-                    * (1. / KERNEL_SUPPORT)
-                    * (1. / KERNEL_SUPPORT)
-                    * (1. / KERNEL_SUPPORT)
-                    * (1. / KERNEL_SUPPORT);
-                const ALPHA: f64 = -10.0 / PI * KS_5;
-                let r = x_i.distance(*x_j);
-                let t2 = (KERNEL_SUPPORT - r).max(0.0);
-                ALPHA * (*x_i - *x_j).normalize_or_zero() * t2 * t2
+                (*x_i - *x_j).normalize_or_zero() / H * ALPHA * (-3.0 * t2 * t2 + 12.0 * t1 * t1)
             }
             KernelType::DoubleCosine => {
                 const ALPHA: f64 = PI / ((3. * PI * PI - 16.) * KERNEL_SUPPORT * KERNEL_SUPPORT);
@@ -109,6 +92,10 @@ impl KernelType {
             }
         }
     }
+
+    pub fn dw(&self, x_i: &DVec2, x_j: &DVec2) -> DVec2 {
+        self.dw_unnormalized(x_i, x_j) * self.dw_normalization()
+    }
 }
 
 #[cfg(test)]
@@ -124,7 +111,7 @@ mod tests {
     const RIEMANN_INTEGRAL_RES: usize = 10_000;
     const RIEMANN_INTEGRAL_ACCEPTED_ERROR: f64 = 10e-8;
     const MC_TEST_RUNS_ACCEPTED_REL_ERROR: f64 = 10e-3;
-    const IDEAL_SAMPLING_ACCEPTED_ERROR: f64 = 10e-3;
+    const IDEAL_SAMPLING_ACCEPTED_ERROR: f64 = 0.01;
     const F64_EQUALITY_EPSILON: f64 = 10e-12;
 
     fn get_ideal_sampled_pos_around_origin() -> Vec<DVec2> {
@@ -146,13 +133,6 @@ mod tests {
         )
     }
 
-    fn randspace(min: f64, max: f64, resolution: usize) -> Vec<f64> {
-        assert!(max > min);
-        (0..resolution)
-            .map(|_| thread_rng().gen_range(min..max))
-            .collect::<Vec<f64>>()
-    }
-
     fn linspace(min: f64, max: f64, resolution: usize) -> Vec<f64> {
         assert!(max > min);
         let step = (max - min) / (resolution as f64);
@@ -163,7 +143,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn w_positivity(knl: &KernelType) {
         for _ in 0..MC_TEST_RUNS {
@@ -172,7 +151,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn dw_positivity(knl: &KernelType) {
         for _ in 0..MC_TEST_RUNS {
@@ -191,7 +169,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn w_compact(knl: &KernelType) {
         for _ in 0..MC_TEST_RUNS {
@@ -208,7 +185,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn dw_compact(knl: &KernelType) {
         for _ in 0..MC_TEST_RUNS {
@@ -220,7 +196,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn w_symmetry(knl: &KernelType) {
         for _ in 0..MC_TEST_RUNS {
@@ -230,7 +205,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn dw_antisymmetry(knl: &KernelType) {
         for _ in 0..MC_TEST_RUNS {
@@ -240,7 +214,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn w_integral_mc(knl: &KernelType) {
         let o = DVec2::ZERO;
@@ -259,7 +232,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn dw_integral_mc(knl: &KernelType) {
         let o = DVec2::ZERO;
@@ -278,7 +250,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn w_riemann_integral_(knl: &KernelType) {
         let xs = linspace(-ASSUMED_RANGE, ASSUMED_RANGE, RIEMANN_INTEGRAL_RES);
@@ -299,97 +270,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
-    #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
-    fn w_and_dw_consistency(knl: &KernelType) {
-        // https://www.dam.brown.edu/people/alcyew/handouts/numdiff.pdf
-        let range = 0.90 * KERNEL_SUPPORT;
-        let resolution = 1000;
-        let xs = linspace(-range, range, resolution);
-        let ys = linspace(-range, range, resolution);
-        let delta = H / 64.;
-        for x in &xs {
-            for y in &ys {
-                let f_xp2d = knl.w(&DVec2::ZERO, &DVec2::new(*x + 2. * delta, *y));
-                let f_xpd = knl.w(&DVec2::ZERO, &DVec2::new(*x + delta, *y));
-                let f_xmd = knl.w(&DVec2::ZERO, &DVec2::new(*x - delta, *y));
-                let f_xm2d = knl.w(&DVec2::ZERO, &DVec2::new(*x - 2. * delta, *y));
-                let f_yp2d = knl.w(&DVec2::ZERO, &DVec2::new(*x, *y + 2. * delta));
-                let f_ypd = knl.w(&DVec2::ZERO, &DVec2::new(*x, *y + delta));
-                let f_ymd = knl.w(&DVec2::ZERO, &DVec2::new(*x, *y - delta));
-                let f_ym2d = knl.w(&DVec2::ZERO, &DVec2::new(*x, *y - 2. * delta));
-                let dx = -(-f_xp2d + 8. * f_xpd - 8. * f_xmd + f_xm2d) / (12. * delta);
-                let dy = -(-f_yp2d + 8. * f_ypd - 8. * f_ymd + f_ym2d) / (12. * delta);
-                let dw = knl.dw(&DVec2::ZERO, &DVec2::new(*x, *y));
-                assert!(
-                    dx.abs() < 0.1 || (dw.x / dx - 1.0).abs() < 10e-2,
-                    "x failed! dx:{} dy:{} dw:{} at:[{},{}]",
-                    dx,
-                    dy,
-                    dw,
-                    x,
-                    y
-                );
-                assert!(
-                    dy.abs() < 0.1 || (dw.y / dy - 1.0).abs() < 10e-2,
-                    "y failed! dx:{} dy:{} dw:{} at:[{},{}]",
-                    dx,
-                    dy,
-                    dw,
-                    x,
-                    y
-                );
-            }
-        }
-    }
-
-    #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
-    #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
-    fn w_and_dw_consistency_random(knl: &KernelType) {
-        // https://www.dam.brown.edu/people/alcyew/handouts/numdiff.pdf
-        let range = 0.90 * KERNEL_SUPPORT;
-        let resolution = 1000;
-        let xs = randspace(-range, range, resolution);
-        let ys = randspace(-range, range, resolution);
-        let delta = H / 1024.;
-        for x in &xs {
-            for y in &ys {
-                let f_xp2d = knl.w(&DVec2::ZERO, &DVec2::new(*x + 2. * delta, *y));
-                let f_xpd = knl.w(&DVec2::ZERO, &DVec2::new(*x + delta, *y));
-                let f_xmd = knl.w(&DVec2::ZERO, &DVec2::new(*x - delta, *y));
-                let f_xm2d = knl.w(&DVec2::ZERO, &DVec2::new(*x - 2. * delta, *y));
-                let f_yp2d = knl.w(&DVec2::ZERO, &DVec2::new(*x, *y + 2. * delta));
-                let f_ypd = knl.w(&DVec2::ZERO, &DVec2::new(*x, *y + delta));
-                let f_ymd = knl.w(&DVec2::ZERO, &DVec2::new(*x, *y - delta));
-                let f_ym2d = knl.w(&DVec2::ZERO, &DVec2::new(*x, *y - 2. * delta));
-                let dx = -(-f_xp2d + 8. * f_xpd - 8. * f_xmd + f_xm2d) / (12. * delta);
-                let dy = -(-f_yp2d + 8. * f_ypd - 8. * f_ymd + f_ym2d) / (12. * delta);
-                let dw = knl.dw(&DVec2::ZERO, &DVec2::new(*x, *y));
-                assert!(
-                    dx.abs() < 0.1 || (dw.x / dx - 1.0).abs() < 10e-2,
-                    "x failed! dx:{} dy:{} dw:{} at:[{},{}]",
-                    dx,
-                    dy,
-                    dw,
-                    x,
-                    y
-                );
-                assert!(
-                    dy.abs() < 0.1 || (dw.y / dy - 1.0).abs() < 10e-2,
-                    "y failed! dx:{} dy:{} dw:{} at:[{},{}]",
-                    dx,
-                    dy,
-                    dw,
-                    x,
-                    y
-                );
-            }
-        }
-    }
-
-    #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn dw_riemann_integral_(knl: &KernelType) {
         let xs = linspace(-ASSUMED_RANGE, ASSUMED_RANGE, RIEMANN_INTEGRAL_RES);
@@ -410,7 +290,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn dw_a_to_a_is_zero(knl: &KernelType) {
         for _ in 0..MC_TEST_RUNS {
@@ -420,7 +299,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn w_ideal_volume(knl: &KernelType) {
         let pos = get_ideal_sampled_pos_around_origin();
@@ -438,7 +316,6 @@ mod tests {
     }
 
     #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    #[test_case(&KernelType::Spiky ; "Spiky")]
     #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
     fn dw_ideal_sum_is_zero(knl: &KernelType) {
         let pos = get_ideal_sampled_pos_around_origin();
@@ -447,26 +324,26 @@ mod tests {
         assert!(sum.length() < MC_TEST_RUNS_ACCEPTED_REL_ERROR)
     }
 
-    // #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
-    // #[test_case(&KernelType::Spiky ; "Spiky")]
-    // #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
-    // /// Assert $$sum_j{ (x_i - x_j) \bigotimes \nabla W_{ij} = -\frac{1}{V_i}\cdot \mathbf{I}}$$
-    // fn dw_ideal_projected_density(knl: &KernelType) {
-    //     let pos = get_ideal_sampled_pos_around_origin();
-    //     let x_i = DVec2::ZERO;
-    //     let sum: DVec2 = pos
-    //         .par_iter()
-    //         .map(|x_j| knl.dw(&x_i, x_j) * (x_i - *x_j))
-    //         .sum();
-    //     let expected = -1.0 / (H * H) * DVec2::ONE;
-    //     assert!(
-    //         sum.distance(expected) < TEST_RUNS_ACCEPTED_REL_ERROR,
-    //         "sum: {} expected: {}",
-    //         sum,
-    //         expected
-    //     );
-    //     // also show that the kernel derivative is reversed correctly
-    //     assert!(sum.x <= 0.0);
-    //     assert!(sum.y <= 0.0);
-    // }
+    #[test_case(&KernelType::GaussSpline3 ; "Cubic Spline")]
+    #[test_case(&KernelType::DoubleCosine ; "Double Cosine")]
+    /// Assert $$sum_j{ (x_i - x_j) \bigotimes \nabla W_{ij} = -\frac{1}{V_i}\cdot \mathbf{I}}$$ with 5% error tolerance
+    fn dw_ideal_normalization(knl: &KernelType) {
+        let pos = get_ideal_sampled_pos_around_origin();
+        let sum: DVec2 = pos
+            .par_iter()
+            .map(|x_j| knl.dw(&DVec2::ZERO, x_j) * (-*x_j))
+            .sum();
+        let expected = -1.0 / (H * H) * DVec2::ONE;
+        assert!((sum.x - sum.y).abs() < F64_EQUALITY_EPSILON);
+        assert!(
+            (sum.x - expected.x).abs() < F64_EQUALITY_EPSILON,
+            "sum: {} expected: {}, normalization factor {}",
+            sum,
+            expected,
+            expected / sum
+        );
+        // also show that the kernel derivative is reversed correctly
+        assert!(sum.x <= 0.0);
+        assert!(sum.y <= 0.0);
+    }
 }

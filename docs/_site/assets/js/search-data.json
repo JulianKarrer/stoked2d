@@ -15,7 +15,7 @@
   },"2": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Testing the Kernel Function",
-    "content": ". | Kernel properties are tested . | Integrals are implemented with Monte Carlo, \\(N=10^{8}\\) on \\(\\Omega=[-2.1h; 2.1h]\\) | Accepted error is \\(\\epsilon = 10^{-3}\\) | They are checked again with Riemann sums of \\(n=10^4,\\, \\epsilon=10^{-9}\\) | All other tests are run \\(N\\) times with random \\(\\mathbf{\\vec{x_i}, \\vec{x_j}}\\) | . \\[\\begin{align} &amp;W(\\lVert \\mathbf{\\vec{x_i} - \\vec{x_j}} \\rVert, \\kappa) &gt; 0&amp;&amp; \\text{Positivity}\\\\ \\forall r&gt;\\kappa:\\quad &amp;W(r, \\kappa) = 0,\\quad \\nabla W(r, \\kappa) = 0&amp;&amp;\\text{Compact support}\\\\ &amp;W_{ij} = W_{ji}&amp;&amp; \\text{Symmetry}\\\\ &amp;\\nabla W_{ij} = \\nabla W_{ji} &amp;&amp;\\text{Gradient Antisymmetry}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa)\\,dV = 1&amp;&amp;\\text{Kernel Integral}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;\\nabla W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa)\\,dV = \\mathbf{\\vec{0}}&amp;&amp;\\text{Kernel Gradient Integral}\\\\ &amp;\\nabla W_{ii} = 0 &amp;&amp;\\text{Kernel Gradient at Zero is Zero}\\\\ \\end{align}\\] | For ideal sampling, where \\(\\kappa = 2h\\), \\(h\\) is the particle spacing a regular grid is used: . \\[\\begin{align} \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa) = \\frac{1}{h^2}&amp;&amp;\\text{Integral is Density}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;\\nabla W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa) = \\mathbf{\\vec{0}}&amp;&amp;\\text{Gradient Integral is Zero}\\\\ \\sum_j &amp;\\left(\\mathbf{(\\vec{x}_i - \\vec{x}_j)} \\odot \\nabla W_{ij} \\right) = -\\frac{1}{V} \\cdot \\mathbf{\\vec{1}}&amp;&amp;\\text{Density from Gradient} \\end{align}\\] | On a \\(100\\times 100\\) regular grid and a random grid, the consistency of each \\(\\nabla W\\) is tested by comparing to a \\(\\mathcal{O}(\\Delta x^4)\\) central difference of \\(W\\) with an accepted error of \\(1\\%\\) . | ❌ this fails for Cubic Spline for small \\(h\\) - numerical problem at discontinuity? | ❌ always fails for Spiky kernel - smoothness too low? | ✅ always passes for Double Cosine kernel | . | . ",
+    "content": ". | Kernel properties are tested . | Integrals are implemented with Monte Carlo, \\(N=10^{8}\\) on \\(\\Omega=[-2.1h; 2.1h]\\) | Accepted error is \\(\\epsilon = 10^{-3}\\) | They are checked again with Riemann sums of \\(n=10^4,\\, \\epsilon=10^{-9}\\) | All other tests are run \\(N\\) times with random \\(\\mathbf{\\vec{x_i}, \\vec{x_j}}\\) | . \\[\\begin{align} &amp;W(\\lVert \\mathbf{\\vec{x_i} - \\vec{x_j}} \\rVert, \\kappa) &gt; 0&amp;&amp; \\text{Positivity}\\\\ \\forall r&gt;\\kappa:\\quad &amp;W(r, \\kappa) = 0,\\quad \\nabla W(r, \\kappa) = 0&amp;&amp;\\text{Compact support}\\\\ &amp;W_{ij} = W_{ji}&amp;&amp; \\text{Symmetry}\\\\ &amp;\\nabla W_{ij} = -\\nabla W_{ji} &amp;&amp;\\text{Gradient Antisymmetry}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa)\\,dV = 1&amp;&amp;\\text{Kernel Integral}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;\\nabla W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa)\\,dV = \\mathbf{\\vec{0}}&amp;&amp;\\text{Kernel Gradient Integral}\\\\ &amp;\\nabla W_{ii} = 0 &amp;&amp;\\text{Kernel Gradient at Zero is Zero}\\\\ \\end{align}\\] | For ideal sampling, where \\(\\kappa = 2h\\), \\(h\\) is the particle spacing a regular grid is used for \\(\\mathbf{\\vec{x}}_j\\): . \\[\\begin{align} \\sum_j&amp;W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa) = \\frac{1}{h^2}&amp;&amp;\\text{Integral is Density}\\\\ \\sum_j&amp;\\nabla W(\\mathbf{\\vec{0} - \\vec{x_j}}, \\kappa) = \\mathbf{\\vec{0}}&amp;&amp;\\text{Gradient Integral is Zero}\\\\ \\sum_j &amp;\\left(\\mathbf{(\\vec{0} - \\vec{x}_j)} \\odot \\nabla W_{ij} \\right) = -\\frac{1}{V} \\cdot \\mathbf{\\vec{1}}&amp;&amp;\\text{Gradient Normalization} \\end{align}\\] | On a \\(100\\times 100\\) regular grid and a random grid, the consistency of each \\(\\nabla W\\) is tested by comparing to a \\(\\mathcal{O}(\\Delta x^4)\\) central difference of \\(W\\) with an accepted error of \\(1\\%\\) . | ❌ this fails for Cubic Spline for small \\(h\\) - numerical problem at discontinuity? | ❌ always fails for Spiky kernel - smoothness too low? | ✅ always passes for Double Cosine kernel | . | . ",
     "url": "/stoked2d/week1a/#testing-the-kernel-function",
     
     "relUrl": "/week1a/#testing-the-kernel-function"
@@ -70,19 +70,26 @@
     "relUrl": "/week1a/#questions"
   },"10": {
     "doc": "Testing Kernels and Datastructures",
+    "title": "Conclusions - After the Meeting",
+    "content": ". | \\(\\sum_j \\left(\\mathbf{(\\vec{x}_i - \\vec{x}_j)} \\odot \\nabla W_{ij} \\right) = -\\frac{1}{V} \\cdot \\mathbf{\\vec{1}}\\) actually worked! Error tolerances were to low . | Cubic Spline has 1.3% error, as expected | Double Cosine has 4.7% error | The gradients are now normalized such that this error is zero by applying a constant factor. | . | Remove consistency check with finite difference . | The Spiky Kernel was removed from the simulation. | Kernel normalization in the Cubic Spline kernel was off by a factor of \\(\\frac{1}{h}\\) because of an error in the slides that was copied (p.64). | this was neatly demonstrated in the “Stability as an interval over stiffness k”-Section, where the interval for k was off by exactly \\(\\frac{1}{h}=\\frac{1}{0.03}=33\\frac{1}{3}\\) | . | . ",
+    "url": "/stoked2d/week1a/#conclusions---after-the-meeting",
+    
+    "relUrl": "/week1a/#conclusions---after-the-meeting"
+  },"11": {
+    "doc": "Testing Kernels and Datastructures",
     "title": "Testing Kernels and Datastructures",
     "content": " ",
     "url": "/stoked2d/week1a/",
     
     "relUrl": "/week1a/"
-  },"11": {
+  },"12": {
     "doc": "Boundary Handling",
     "title": "Towards a single non-uniform layer",
     "content": " ",
     "url": "/stoked2d/week1b/#towards-a-single-non-uniform-layer",
     
     "relUrl": "/week1b/#towards-a-single-non-uniform-layer"
-  },"12": {
+  },"13": {
     "doc": "Boundary Handling",
     "title": "Boundary Handling",
     "content": " ",

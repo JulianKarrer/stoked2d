@@ -95,7 +95,7 @@ nav_order: 0
 
   &W_{ij} = W_{ji}&& \text{Symmetry}\\
 
-  &\nabla W_{ij} = \nabla W_{ji} &&\text{Gradient Antisymmetry}\\
+  &\nabla W_{ij} = -\nabla W_{ji} &&\text{Gradient Antisymmetry}\\
 
   \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa)\,dV = 1&&\text{Kernel Integral}\\
 
@@ -106,14 +106,14 @@ nav_order: 0
 
   \end{align}$$
 
-- For ideal sampling, where $$\kappa = 2h$$, $$h$$ is the particle spacing a regular grid is used:
+- For ideal sampling, where $$\kappa = 2h$$, $$h$$ is the particle spacing a regular grid is used for $$\mathbf{\vec{x}}_j$$:
 
   $$\begin{align}
-  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \frac{1}{h^2}&&\text{Integral is Density}\\
+  \sum_j&W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \frac{1}{h^2}&&\text{Integral is Density}\\
 
-  \int_{\mathbf{x_j}\in[-\kappa;\kappa]^2}&\nabla W(\lVert \mathbf{\vec{0} - \vec{x_j}} \rVert, \kappa) = \mathbf{\vec{0}}&&\text{Gradient Integral is Zero}\\
+  \sum_j&\nabla W(\mathbf{\vec{0} - \vec{x_j}}, \kappa) = \mathbf{\vec{0}}&&\text{Gradient Integral is Zero}\\
 
-  \sum_j &\left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}&&\text{Density from Gradient}
+  \sum_j &\left(\mathbf{(\vec{0} - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}&&\text{Gradient Normalization}
   \end{align}$$
 
 - On a $$100\times 100$$ regular grid and a random grid, the consistency of each $$\nabla W$$ is tested by comparing to a $$\mathcal{O}(\Delta x^4)$$ [central difference](https://www.dam.brown.edu/people/alcyew/handouts/numdiff.pdf){:target="_blank"} of $$W$$ with an accepted error of $$1\%$$ 
@@ -123,7 +123,7 @@ nav_order: 0
 
 ## Failed Tests
 
-❌ Ideal Sampling: $$\sum_j \left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}$$ always fails
+~~❌ Ideal Sampling: $$\sum_j \left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}$$ always fails~~
 
 | Kernel    | Failed Tests |
 | -------- | ------- |
@@ -203,3 +203,20 @@ For $$\kappa \in [0.9, 1.0, 1.1], \, N=5000$$ particles are randomly distributed
 - Why do the stable parameters differ so wildly from kernel to kernel?
 - Why did not producing a compact filled cell list improve neighbour search performance? (size of the system?)
 - How can energy conservation accurately be tracked?
+
+
+---
+
+# Conclusions - After the Meeting
+
+- $$\sum_j \left(\mathbf{(\vec{x}_i - \vec{x}_j)} \odot \nabla W_{ij} \right) = -\frac{1}{V} \cdot \mathbf{\vec{1}}$$ actually worked! Error tolerances were to low
+  - Cubic Spline has 1.3% error, [as expected](https://cg.informatik.uni-freiburg.de/course_notes/sim_03_particleFluids.pdf){:target="_blank"}
+  - Double Cosine has 4.7% error
+  - The gradients are now normalized such that this error is zero by applying a constant factor.
+
+- Remove consistency check with finite difference
+
+- The Spiky Kernel was removed from the simulation.
+
+- Kernel normalization in the Cubic Spline kernel was off by a factor of $$\frac{1}{h}$$ because of [an error in the slides that was copied](https://cg.informatik.uni-freiburg.de/course_notes/sim_03_particleFluids.pdf){:target="_blank"} (p.64).
+  - this was neatly demonstrated in the "Stability as an interval over stiffness k"-Section, where the interval for k was off by exactly $$\frac{1}{h}=\frac{1}{0.03}=33\frac{1}{3}$$

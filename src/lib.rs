@@ -1,5 +1,6 @@
 #![feature(test)]
 #![feature(iter_collect_into)]
+#![feature(const_fn_floating_point_arithmetic)]
 use atomic_float::{AtomicF32, AtomicF64};
 use datastructure::{AtomicGridCurve, GridCurve};
 use egui_speedy2d::egui::mutex::RwLock;
@@ -46,7 +47,7 @@ lazy_static! {
     static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-3.0, -3.0), DVec2::new(3.0, 3.0)];
     static ref FLUID: [DVec2; 2] = [
         DVec2::new(-3.0 + H * 1., -3.0 + H * 1.),
-        DVec2::new(3. - H, -0.)
+        DVec2::new(0. - H, -0.)
     ];
     static ref HARD_BOUNDARY: [Float2; 2] = [
         Float2::new(
@@ -73,14 +74,14 @@ lazy_static! {
 /// The gravitational constant
 static GRAVITY: AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-pub const H: f64 = 0.03;
+pub const H: f64 = 0.05;
 const BOUNDARY_LAYER_COUNT: usize = 3;
 const USE_GPU_BOUNDARY: bool = true;
 
 /// Viscosity constant Nu
-static NU: AtomicF64 = AtomicF64::new(0.02);
+static NU: AtomicF64 = AtomicF64::new(0.03);
 /// Stiffness constant determining the incompressibility in the state equation
-static K: AtomicF64 = AtomicF64::new(1600.0);
+static K: AtomicF64 = AtomicF64::new(2300.0);
 
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
