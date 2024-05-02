@@ -4,8 +4,7 @@ title: Testing Kernels and Datastructures
 permalink: /week1a/
 nav_order: 0
 ---
-<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
-<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
 
 
 # Implemented Kernel Functions
@@ -157,7 +156,18 @@ Double Cosine Kernel for $$k=580$$ and $$k=2000$$ (unstable on the left, stable 
   </div>
 </div>
 
+# Testing Energy Conservation
+The Hamiltonian is for now defined as :
 
+  $$\mathcal{H} = \sum_i^N \left( m_i \mathbf{\vec{g}} \cdot \mathbf{\vec{x}}_i + \frac{1}{2} m_i \mathbf{\vec{v}}_i \cdot \mathbf{\vec{v}}_i\right)$$
+
+And normalized as $$ \mathcal{H}_{min} = mgh_{min}$$ and $$\mathcal{H}_{norm} = \frac{\mathcal{H}-\mathcal{H}_{min} }{\lVert \mathcal{H}_{min} \rVert} $$ for plotting
+
+but appears to be missing a term that is proportional to the compression of the fluid ([internal energy potential?](https://www.sciencedirect.com/science/article/pii/S0021999105001865){:target="_blank"}) as indicated by oscillations in a resting water column:
+
+{% include plot_den_ham_1714640585.html %}
+
+- Should $$U =\sum_i^N p_i V_i = p_i\frac{m_i}{\rho_i}$$ be used to compensate? Can the oscillation even be avoided?
 
 # Improving the Acceleration Datatructure
  <span style="color:lightgreen">+400 FPS@N=4k / +60%</span>
@@ -184,7 +194,7 @@ For $$\kappa \in [0.9, 1.0, 1.1], \, N=5000$$ particles are randomly distributed
   </div>
 </div>
 
-  {% include plot_den_ham_1714580095.html %}
+{% include plot_den_ham_1714580095.html %}
 
 
 # Questions
@@ -192,4 +202,4 @@ For $$\kappa \in [0.9, 1.0, 1.1], \, N=5000$$ particles are randomly distributed
 - Why did the test for the spiky kernel fail?
 - Why do the stable parameters differ so wildly from kernel to kernel?
 - Why did not producing a compact filled cell list improve neighbour search performance? (size of the system?)
-
+- How can energy conservation accurately be tracked?

@@ -46,7 +46,7 @@ lazy_static! {
     static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-3.0, -3.0), DVec2::new(3.0, 3.0)];
     static ref FLUID: [DVec2; 2] = [
         DVec2::new(-3.0 + H * 1., -3.0 + H * 1.),
-        DVec2::new(0. - H, -0.)
+        DVec2::new(3. - H, -0.)
     ];
     static ref HARD_BOUNDARY: [Float2; 2] = [
         Float2::new(

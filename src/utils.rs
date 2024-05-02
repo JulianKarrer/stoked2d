@@ -18,6 +18,7 @@ pub fn average_val(arr: &[f64]) -> f64 {
     arr.par_iter().sum::<f64>() / arr.len() as f64
 }
 
+/// Get the current second of the unix epoch.
 pub fn get_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -25,11 +26,12 @@ pub fn get_timestamp() -> u64 {
         .as_secs()
 }
 
+/// Unzips a single vector of arrays of size two of floats into two vectors of floats.
 pub fn unzip_f64_2(values: &[[f64; 2]]) -> (Vec<f64>, Vec<f64>) {
     values.par_iter().map(|v| (v[0], v[1])).unzip()
 }
 
-/// Compute the Hamiltonian of the system
+/// Computes the Hamiltonian of the system
 pub fn hamiltonian(pos: &[DVec2], vel: &[DVec2], mass: f64, min_height: f64) -> f64 {
     let g = -GRAVITY.load(atomic::Ordering::Relaxed);
     let lowest = mass * g * min_height * pos.len() as f64;
