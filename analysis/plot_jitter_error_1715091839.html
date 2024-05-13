@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+</head>
+
+<body>
+    <div>
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
+        <script src="https://cdn.plot.ly/plotly-2.12.1.min.js"></script>
+        <div id="plotly-html-element" class="plotly-graph-div" style="height:100%; width:100%;"></div>
+
+        <script type="module">
+            const graph_div = document.getElementById("plotly-html-element");
+            await Plotly.newPlot(graph_div, {
+  "data": [
+    {
+      "type": "scatter",
+      "name": "Absolute Density Error",
+      "x": [
+        0.0,
+        0.01,
+        0.02,
+        0.03,
+        0.04,
+        0.05,
+        0.06,
+        0.07,
+        0.08,
+        0.09,
+        0.1
+      ],
+      "y": [
+        0.06760517232748926,
+        0.06839105498062094,
+        0.06848533662309143,
+        0.09861943500743091,
+        0.06387345666383883,
+        0.08592943277282172,
+        0.07712064538772423,
+        0.09367557201235002,
+        0.07090695402468068,
+        0.06956393177699938,
+        0.13315232181934922
+      ]
+    },
+    {
+      "type": "scatter",
+      "name": "Squared Density Error",
+      "x": [
+        0.0,
+        0.01,
+        0.02,
+        0.03,
+        0.04,
+        0.05,
+        0.06,
+        0.07,
+        0.08,
+        0.09,
+        0.1
+      ],
+      "y": [
+        0.000496473537852289,
+        0.0004998033578859062,
+        0.0005001732276106487,
+        0.0016254482862725903,
+        0.00042280567314543057,
+        0.001116527096782764,
+        0.0008715442277528998,
+        0.0013638402462931695,
+        0.0006354102476004976,
+        0.0005482726907113115,
+        0.0027871210992626004
+      ]
+    }
+  ],
+  "layout": {
+    "dragmode": "pan"
+  },
+  "config": {
+    "scrollZoom": true,
+    "responsive": true
+  }
+});
+        </script>
+    </div>
+</body>
+
+</html>

@@ -1,5 +1,6 @@
-use crate::{*, sph::KernelType, datastructure::Grid};
+use crate::{datastructure::Grid, sph::KernelType,  *};
 use std::{fmt::Debug, time::Duration};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
 use atomic_enum::atomic_enum;
 
@@ -7,7 +8,7 @@ use self::{gui::gui::{REQUEST_RESTART, SIMULATION_TOGGLE}, utils::average_val};
 
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub fn run()->bool{
+pub fn run(run_for_t: Option<f64>)->bool{
   let mut state = Attributes::new();
   let mut grid = Grid::new(state.pos.len());
   grid.update_grid(&state.pos, KERNEL_SUPPORT);
@@ -42,6 +43,12 @@ pub fn run()->bool{
       {  HISTORY.write().add_step(&state, &grid, current_t); }
     } else {
       {  HISTORY.write().add_plot_data_only(&state,  current_t); }
+    }
+     // if only a specific time frame was requested, stop the simulation
+     if let Some(max_t) = run_for_t {
+      if max_t <= current_t {
+          return false;
+      }
     }
   }
   *REQUEST_RESTART.write() = false;
@@ -149,12 +156,13 @@ fn apply_gravity_and_viscosity(pos: &[DVec2], vel: &[DVec2], acc: &mut[DVec2], d
 
 /// Update the densities at each particle
 fn update_densities(pos: &[DVec2], den: &mut[f64], grid: &Grid, boundary: &Boundary, knl:&KernelType){
+  let gamma1 = GAMMA_1.load(Relaxed);
   pos.par_iter().enumerate().zip(den).for_each(|((i, x_i), rho_i)|{
     *rho_i = 
       M * grid.query_index(i).iter().map(|j| 
         knl.w(x_i, &pos[*j])
       ).sum::<f64>() + 
-      M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
+      gamma1 * M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
         knl.w(x_i, &boundary.pos[*j])
       ).sum::<f64>();
   });
@@ -207,6 +215,7 @@ fn update_pressures(den: &[f64], prs:&mut[f64]){
 fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut[DVec2], grid: &Grid, boundary: &Boundary, knl:&KernelType){
   let rho_0 = RHO_ZERO.load(Relaxed);
   let one_over_rho_0_squared = 1.0/(rho_0*rho_0);
+  let gamma_2 = GAMMA_2.load(Relaxed);
   pos.par_iter().enumerate().zip(prs).zip(den).zip(acc)
   .for_each(|((((i, x_i), p_i), rho_i), acc)|{
     let p_i_over_rho_i_squared = p_i/(rho_i*rho_i);
@@ -214,8 +223,8 @@ fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut
       -M * grid.query_index(i).iter().map(|j| 
         (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * knl.dw(x_i, &pos[*j])
       ).sum::<DVec2>()
-      -M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
-        (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * knl.dw(x_i, &boundary.pos[*j])
+      -gamma_2 * M * (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
+        knl.dw(x_i, &boundary.pos[*j])
       ).sum::<DVec2>();
   })
 }
@@ -225,6 +234,7 @@ fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut
 fn overwrite_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut[DVec2], grid: &Grid, boundary: &Boundary, knl:&KernelType){
   let rho_0 = RHO_ZERO.load(Relaxed);
   let one_over_rho_0_squared = 1.0/rho_0*rho_0;
+  let gamma_2 = GAMMA_2.load(Relaxed);
   pos.par_iter().enumerate().zip(prs).zip(den).zip(acc)
   .for_each(|((((i, x_i), p_i), rho_i), acc)|{
     let p_i_over_rho_i_squared = p_i/(rho_i*rho_i);
@@ -232,8 +242,8 @@ fn overwrite_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc
       -M * grid.query_index(i).iter().map(|j| 
         (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * knl.dw(x_i, &pos[*j])
       ).sum::<DVec2>()
-      -M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
-        (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * knl.dw(x_i, &boundary.pos[*j])
+      -gamma_2 * M * (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
+        knl.dw(x_i, &boundary.pos[*j])
       ).sum::<DVec2>();
   })
 }
@@ -341,17 +351,22 @@ impl Attributes{
     let mut vel:Vec<DVec2> = Vec::with_capacity(n); 
     let mut acc:Vec<DVec2> = Vec::with_capacity(n); 
     // initialization
+    let jitter = INITIAL_JITTER.load(Relaxed);
+    let mut small_rng = SmallRng::seed_from_u64(42);
     let mut x = FLUID[0].x;
     let mut y = FLUID[0].y;
-    while x <= FLUID[1].x {
-      while y <= FLUID[1].y{
-        pos.push(DVec2::new(x, y));
+    while y <= FLUID[1].y{
+      while x <= FLUID[1].x {
+        pos.push(DVec2::new(x, y) + DVec2::new(
+          small_rng.gen_range(-jitter..=jitter), 
+          small_rng.gen_range(-jitter..=jitter)
+        ));
         vel.push(DVec2::ZERO);
         acc.push(DVec2::ZERO);
-        y += H;
+        x += H;
       }
-      y = FLUID[0].y;
-      x += H;
+      x = FLUID[0].x;
+      y += H;
     }
     let prs = vec![0.0;pos.len()];
     let den = vec![M/(H*H);pos.len()];

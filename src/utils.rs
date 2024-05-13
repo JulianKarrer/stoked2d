@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use glam::DVec2;
+use rand::{thread_rng, Rng};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::GRAVITY;
@@ -46,4 +47,63 @@ pub fn hamiltonian(pos: &[DVec2], vel: &[DVec2], mass: f64, min_height: f64) -> 
         })
         .sum();
     (ham - lowest) / lowest.abs()
+}
+
+/// Give a random 'DVec2' within a given square range $[-range;range]^2$
+pub fn random_vec2(range: f64) -> DVec2 {
+    DVec2::new(
+        thread_rng().gen_range(-range..range),
+        thread_rng().gen_range(-range..range),
+    )
+}
+
+/// Yield `resolution + 1` many floats equally spaced between `min` and `max` (both inclusive)
+pub fn linspace(min: f64, max: f64, resolution: usize) -> Vec<f64> {
+    assert!(max > min);
+    let step = (max - min) / (resolution as f64);
+    let mut res = vec![];
+    for i in 0..=resolution {
+        res.push(i as f64 * step + min)
+    }
+    res
+}
+
+/// Given `data`, which is a slice of `[x,y]` arrays, integrate the area between
+/// the y-values and the `should_be` value (i.e. the absolute error)
+/// using the trapezoidal rule.
+pub fn integrate_abs_error(data: &[[f64; 2]], should_be: f64) -> f64 {
+    assert!(
+        data.len() > 1,
+        "At least two datapoints must be given to integrate an error."
+    );
+    // loop over pairs of subsequent datapoints
+    data.iter()
+        .zip(data.iter().skip(1))
+        .map(|(a, b)| {
+            // implement the trapezoidal rule for the interval from a to b
+            let err_a = (a[1] - should_be).abs();
+            let err_b = (b[1] - should_be).abs();
+            (b[0] - a[0]) * (err_a + err_b) * 0.5
+        })
+        .sum()
+}
+
+/// Given `data`, which is a slice of `[x,y]` arrays, integrate the squared error
+/// between the y-values and the `should_be` value (i.e. the squared residuals)
+/// using the trapezoidal rule.
+pub fn integrate_squared_error(data: &[[f64; 2]], should_be: f64) -> f64 {
+    assert!(
+        data.len() > 1,
+        "At least two datapoints must be given to integrate an error."
+    );
+    // loop over pairs of subsequent datapoints
+    data.iter()
+        .zip(data.iter().skip(1))
+        .map(|(a, b)| {
+            // implement the trapezoidal rule for the interval from a to b
+            let err_a = (a[1] - should_be) * (a[1] - should_be);
+            let err_b = (b[1] - should_be) * (b[1] - should_be);
+            (b[0] - a[0]) * (err_a + err_b) * 0.5
+        })
+        .sum()
 }

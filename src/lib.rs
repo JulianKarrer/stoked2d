@@ -44,11 +44,19 @@ const VELOCITY_EPSILON: f64 = 0.00001;
 
 // SIMULATION RELATED CONSTANTS AND ATOMICS
 lazy_static! {
+    // dam break
     static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-3.0, -3.0), DVec2::new(3.0, 3.0)];
     static ref FLUID: [DVec2; 2] = [
         DVec2::new(-3.0 + H * 1., -3.0 + H * 1.),
-        DVec2::new(0. - H, -0.)
+        DVec2::new(0.0, -0.)
     ];
+    // // small water column
+    // static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-1.0, -3.0), DVec2::new(1.0, 3.0)];
+    // static ref FLUID: [DVec2; 2] = [
+    //     DVec2::new(-1.0 + H * 1., -3.0 + H * 1.),
+    //     DVec2::new(1.0, -0.)
+    // ];
+
     static ref HARD_BOUNDARY: [Float2; 2] = [
         Float2::new(
             BOUNDARY[0].x as f32 - (BOUNDARY_LAYER_COUNT + 10) as f32 * H as f32,
@@ -59,7 +67,7 @@ lazy_static! {
             BOUNDARY[1].y as f32 + (BOUNDARY_LAYER_COUNT + 10) as f32 * H as f32
         )
     ];
-    static ref HISTORY: Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
+    pub static ref HISTORY: Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
     static ref SOLVER: AtomicSolver = AtomicSolver::new(simulation::Solver::SESPH);
     static ref SPH_KERNELS: Arc<RwLock<SphKernel>> = Arc::new(RwLock::new(SphKernel::default()));
     static ref RESORT_ATTRIBUTES_EVERY_N: Arc<RwLock<u32>> = Arc::new(RwLock::new(4));
@@ -74,14 +82,18 @@ lazy_static! {
 /// The gravitational constant
 static GRAVITY: AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-pub const H: f64 = 0.05;
-const BOUNDARY_LAYER_COUNT: usize = 3;
+pub const H: f64 = 0.02;
+pub static INITIAL_JITTER: AtomicF64 = AtomicF64::new(0.01 * H);
+// boundary handling
+const BOUNDARY_LAYER_COUNT: usize = 1;
 const USE_GPU_BOUNDARY: bool = true;
+static GAMMA_1: AtomicF64 = AtomicF64::new(1.4);
+static GAMMA_2: AtomicF64 = AtomicF64::new(1.);
 
 /// Viscosity constant Nu
-static NU: AtomicF64 = AtomicF64::new(0.03);
+static NU: AtomicF64 = AtomicF64::new(0.01);
 /// Stiffness constant determining the incompressibility in the state equation
-static K: AtomicF64 = AtomicF64::new(2300.0);
+static K: AtomicF64 = AtomicF64::new(2000.0);
 
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
@@ -109,8 +121,9 @@ const WORKGROUP_SIZE: usize = 256;
 // video settings
 const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
-const FRAME_TIME: f32 = 1. / 60.;
-// const FRAME_TIME:f32 = 0.001;
+const VIDEO_FPS: usize = 60;
+const FRAME_TIME: f32 = 1. / (VIDEO_FPS as f32);
+// const FRAME_TIME: f32 = 0.0;
 
 /// Get the current timestamp in microseconds
 fn timestamp() -> u128 {

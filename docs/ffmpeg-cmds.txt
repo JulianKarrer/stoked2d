@@ -1,0 +1,8 @@
+SCALE:
+ffmpeg -i test2.mp4 -vf scale="620:-1" -an -preset veryslow dam_jitter.mp4
+
+SLOW DOWN x8:
+ffmpeg -i break_no_jitter.mp4 -filter:v "minterpolate='mi_mode=mci:mc_mode=aobmc:vsbmc=1:fps=480'" testnj.mp4
+ffmpeg -i testnj.mp4 -filter:v "setpts=8.0*PTS" test2nj.mp4
+
+

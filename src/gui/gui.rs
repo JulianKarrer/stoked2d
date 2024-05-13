@@ -360,6 +360,8 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         let mut curve: GridCurve = GRID_CURVE.load(Relaxed);
         let mut feature: VisualizedFeature = VISUALIZED_FEATURE.load(Relaxed);
         let mut colours: ColourScheme = COLOUR_SCHEME.load(Relaxed);
+        let mut gamma_1: f64 = GAMMA_1.load(Relaxed);
+        let mut gamma_2: f64 = GAMMA_2.load(Relaxed);
         // create fonts
         let header = FontId::proportional(FONT_HEADING_SIZE);
         // SETTINGS WINDOW
@@ -372,9 +374,8 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::DragValue::new(&mut lambda)
-                                .speed(0.001)
-                                .max_decimals(3)
-                                .clamp_range(0.001..=1.0),
+                                .speed(0.0001)
+                                .clamp_range(0.0001..=1.0),
                         );
                         ui.label("Timestep λ");
                     });
@@ -429,6 +430,22 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                                 .clamp_range(0.01..=100_000.0),
                         );
                         ui.label("Rest density ρ₀");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut gamma_1)
+                                .speed(0.001)
+                                .clamp_range(1.0..=2.0),
+                        );
+                        ui.label("Boundary density multiplier γ₁");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut gamma_2)
+                                .speed(0.001)
+                                .clamp_range(1.0..=2.0),
+                        );
+                        ui.label("Boundary pressure force multiplier γ₂");
                     });
                     // adjust pressure solver settings
                     ui.label(RichText::new("Pressure Solver").font(header.clone()));
@@ -559,9 +576,21 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         for time_step in &hist.steps {
                             draw_particles(graphics, &hist.bdy, time_step, (x as f32, y as f32));
                             let cap = graphics.capture(speedy2d::image::ImageDataType::RGB);
-                            vid.add_frame(cap.data())
+                            vid.add_frame(cap.data());
                         }
                         vid.finish()
+                    }
+                    if ui.button("Save Image Sequence").clicked() {
+                        let hist = { (*HISTORY).read() };
+                        let x = WINDOW_SIZE[0].load(Relaxed) as usize;
+                        let y = WINDOW_SIZE[1].load(Relaxed) as usize;
+                        println!("rendering raw in {}x{}", x, y);
+                        let timestamp = get_timestamp();
+                        for (i, time_step) in hist.steps.iter().enumerate() {
+                            draw_particles(graphics, &hist.bdy, time_step, (x as f32, y as f32));
+                            let cap = graphics.capture(speedy2d::image::ImageDataType::RGB);
+                            VideoHandler::add_raw_frame(cap.data(), i, timestamp, (x, y));
+                        }
                     }
                 })
             });
@@ -698,6 +727,8 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         GRID_CURVE.store(curve, Relaxed);
         VISUALIZED_FEATURE.store(feature, Relaxed);
         COLOUR_SCHEME.store(colours, Relaxed);
+        GAMMA_1.store(gamma_1, Relaxed);
+        GAMMA_2.store(gamma_2, Relaxed);
 
         // draw the new frame
         helper.request_redraw();

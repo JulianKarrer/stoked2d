@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Testing Kernels and Datastructures
-permalink: /week1a/
+permalink: /week1/
 nav_order: 0
 ---
 

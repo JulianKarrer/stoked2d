@@ -100,8 +100,9 @@ impl KernelType {
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::random_vec2;
+
     use super::*;
-    use rand::{thread_rng, Rng};
     use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
     use test_case::test_case;
 
@@ -124,13 +125,6 @@ mod tests {
             })
             .flatten()
             .collect::<Vec<DVec2>>()
-    }
-
-    fn random_vec2(range: f64) -> DVec2 {
-        DVec2::new(
-            thread_rng().gen_range(-range..range),
-            thread_rng().gen_range(-range..range),
-        )
     }
 
     fn linspace(min: f64, max: f64, resolution: usize) -> Vec<f64> {

@@ -2,99 +2,113 @@
     "doc": "Testing Kernels and Datastructures",
     "title": "Implemented Kernel Functions",
     "content": ". | 2D Cubic Spline Kernel for \\(\\kappa = 2h,\\, \\alpha = \\frac{5}{14 \\pi h^2}, \\, r=\\lVert\\mathbf{\\vec{x}}_{ij}\\rVert, \\, q=\\frac{r}{h}\\) : . \\[W_{\\text{spline}}(\\mathbf{\\vec{x}}_{ij}) := \\alpha \\begin{cases} (2-q)^3 - 4(1-q)^3&amp; 0 \\leq q &lt; 1\\\\ (2-q)^3 &amp; 1 \\leq q &lt; 2\\\\ 0 &amp; q \\ge 2 \\end{cases}\\] \\[\\nabla W_{\\text{spline}}(\\mathbf{\\vec{x}}_{ij}) := \\alpha \\frac{\\mathbf{\\vec{x}}_{ij}}{\\lVert\\mathbf{\\vec{x}}_{ij}\\rVert h}\\begin{cases} -3(2-q)^2 +12 (1-q)^2&amp; 0 \\leq q &lt; 1\\\\ -3(2-q)^2 &amp; 1 \\leq q &lt; 2\\\\ 0 &amp; q \\ge 2 \\end{cases}\\] . | Vanishing gradients as \\(r\\to 0\\) problematic for pressure computation? | . | 2D Spiky Kernel suggested by Müller, Charypar, Gross after Desbrun, Cani normalized for 2D for \\(\\kappa = 2h,\\, \\alpha = -\\frac{10}{\\pi\\kappa^5}, \\, r=\\lVert\\mathbf{\\vec{x}}_{ij}\\rVert\\) : . \\[W_{\\text{spiky}}(\\mathbf{\\vec{x}}_{ij}) := \\alpha \\frac{\\mathbf{\\vec{x}}_{ij}}{\\lVert\\mathbf{\\vec{x}}_{ij}\\rVert}\\begin{cases} (\\kappa-r)^3&amp; 0 \\leq r \\leq \\kappa\\\\ 0 &amp; \\text{otherwise} \\end{cases}\\] \\[\\nabla W_{\\text{spiky}}(\\mathbf{\\vec{x}}_{ij}) := \\alpha \\frac{\\mathbf{\\vec{x}}_{ij}}{\\lVert\\mathbf{\\vec{x}}_{ij}\\rVert}\\begin{cases} (\\kappa-r)^2&amp; 0 &lt; r \\leq \\kappa\\\\ 0 &amp; \\text{otherwise} \\end{cases}\\] . | Unrealistic viscous behaviour? | Wrong density estimation for ideal sampling? | . | 2D Double Cosine Kernel proposed by [Yang, Peng,Liu] for \\(\\kappa = 2h,\\, \\alpha = \\frac{\\pi}{(3\\pi^2-16)(\\kappa)^2}, \\, r=\\lVert\\mathbf{\\vec{x}}_{ij}\\rVert, \\, s=\\frac{r}{h}\\): . \\[W_{\\text{cos}}(\\mathbf{\\vec{x}}_{ij}) := \\alpha \\begin{cases} 4\\cos(\\frac{\\pi}{2}s)+\\cos(\\pi s)+3&amp; 0 \\leq s \\leq 2\\\\ 0 &amp; \\text{otherwise} \\end{cases}\\] \\[\\nabla W_{\\text{cos}}(\\mathbf{\\vec{x}}_{ij}) := \\alpha \\frac{\\mathbf{\\vec{x}}_{ij}}{\\lVert\\mathbf{\\vec{x}}_{ij}\\rVert}\\begin{cases} -2\\frac{\\tau}{\\kappa}\\sin(\\frac{\\pi}{2}s)-\\frac{\\tau}{\\kappa}\\sin(\\pi s)&amp; 0 \\leq s \\leq 2\\\\ 0 &amp; \\text{otherwise} \\end{cases}\\] | . ",
-    "url": "/stoked2d/week1a/#implemented-kernel-functions",
+    "url": "/stoked2d/week1/#implemented-kernel-functions",
     
-    "relUrl": "/week1a/#implemented-kernel-functions"
+    "relUrl": "/week1/#implemented-kernel-functions"
   },"1": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Kernel Function Plots",
     "content": "Kernel Functions for \\(\\kappa = 2h,\\, h=1\\) . | Surprisingly equal integral? Projection to 1D may be at fault, outer regions weigh quadratically more in 2D integral | . Magnitude of Kernel Gradient over \\(\\mathbf{\\vec{x}}_{ij}\\) for Cubic Spline and Spiky Kernel: . ",
-    "url": "/stoked2d/week1a/#kernel-function-plots",
+    "url": "/stoked2d/week1/#kernel-function-plots",
     
-    "relUrl": "/week1a/#kernel-function-plots"
+    "relUrl": "/week1/#kernel-function-plots"
   },"2": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Testing the Kernel Function",
     "content": ". | Kernel properties are tested . | Integrals are implemented with Monte Carlo, \\(N=10^{8}\\) on \\(\\Omega=[-2.1h; 2.1h]\\) | Accepted error is \\(\\epsilon = 10^{-3}\\) | They are checked again with Riemann sums of \\(n=10^4,\\, \\epsilon=10^{-9}\\) | All other tests are run \\(N\\) times with random \\(\\mathbf{\\vec{x_i}, \\vec{x_j}}\\) | . \\[\\begin{align} &amp;W(\\lVert \\mathbf{\\vec{x_i} - \\vec{x_j}} \\rVert, \\kappa) &gt; 0&amp;&amp; \\text{Positivity}\\\\ \\forall r&gt;\\kappa:\\quad &amp;W(r, \\kappa) = 0,\\quad \\nabla W(r, \\kappa) = 0&amp;&amp;\\text{Compact support}\\\\ &amp;W_{ij} = W_{ji}&amp;&amp; \\text{Symmetry}\\\\ &amp;\\nabla W_{ij} = -\\nabla W_{ji} &amp;&amp;\\text{Gradient Antisymmetry}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa)\\,dV = 1&amp;&amp;\\text{Kernel Integral}\\\\ \\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}&amp;\\nabla W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa)\\,dV = \\mathbf{\\vec{0}}&amp;&amp;\\text{Kernel Gradient Integral}\\\\ &amp;\\nabla W_{ii} = 0 &amp;&amp;\\text{Kernel Gradient at Zero is Zero}\\\\ \\end{align}\\] | For ideal sampling, where \\(\\kappa = 2h\\), \\(h\\) is the particle spacing a regular grid is used for \\(\\mathbf{\\vec{x}}_j\\): . \\[\\begin{align} \\sum_j&amp;W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa) = \\frac{1}{h^2}&amp;&amp;\\text{Integral is Density}\\\\ \\sum_j&amp;\\nabla W(\\mathbf{\\vec{0} - \\vec{x_j}}, \\kappa) = \\mathbf{\\vec{0}}&amp;&amp;\\text{Gradient Integral is Zero}\\\\ \\sum_j &amp;\\left(\\mathbf{(\\vec{0} - \\vec{x}_j)} \\odot \\nabla W_{ij} \\right) = -\\frac{1}{V} \\cdot \\mathbf{\\vec{1}}&amp;&amp;\\text{Gradient Normalization} \\end{align}\\] | On a \\(100\\times 100\\) regular grid and a random grid, the consistency of each \\(\\nabla W\\) is tested by comparing to a \\(\\mathcal{O}(\\Delta x^4)\\) central difference of \\(W\\) with an accepted error of \\(1\\%\\) . | ❌ this fails for Cubic Spline for small \\(h\\) - numerical problem at discontinuity? | ❌ always fails for Spiky kernel - smoothness too low? | ✅ always passes for Double Cosine kernel | . | . ",
-    "url": "/stoked2d/week1a/#testing-the-kernel-function",
+    "url": "/stoked2d/week1/#testing-the-kernel-function",
     
-    "relUrl": "/week1a/#testing-the-kernel-function"
+    "relUrl": "/week1/#testing-the-kernel-function"
   },"3": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Failed Tests",
     "content": "❌ Ideal Sampling: \\(\\sum_j \\left(\\mathbf{(\\vec{x}_i - \\vec{x}_j)} \\odot \\nabla W_{ij} \\right) = -\\frac{1}{V} \\cdot \\mathbf{\\vec{1}}\\) always fails . | Kernel | Failed Tests | . | Cubic Spline ❓ | \\(W\\) and \\(\\nabla W\\): consistency with finite difference? | . | Spiky Kernel ❌ | Ideal Sampling: \\(\\int_{\\mathbf{x_j}\\in[-\\kappa;\\kappa]^2}W(\\lVert \\mathbf{\\vec{0} - \\vec{x_j}} \\rVert, \\kappa) = \\frac{1}{h^2}\\) off by +27.36% | . | Double Cosine ✅ | None | . ",
-    "url": "/stoked2d/week1a/#failed-tests",
+    "url": "/stoked2d/week1/#failed-tests",
     
-    "relUrl": "/week1a/#failed-tests"
+    "relUrl": "/week1/#failed-tests"
   },"4": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Stability as an interval over stiffness \\(k\\)",
     "content": ". | Viscosity: Double Cosine Kernel | Pressure and Density Computations: Cubic Spline or Double Cosine | Instability for \\(\\nu=0.02, h=0.03, \\lambda=0.1\\) is defined as: . | when a watter column of height \\(3\\) in a \\(3\\times 3\\) box has \\(\\epsilon_{\\rho}&gt;5\\%\\) density deviation | or starts oscillating at the bottom boundary | . | Results: . | Double Cosine stable for \\(k\\in[580; 2400]\\) | Cubic Spline stable for \\(k\\in[18200; 93000]\\) | . | . Double Cosine Kernel for \\(k=580\\) and \\(k=2000\\) (unstable on the left, stable on the right) . ",
-    "url": "/stoked2d/week1a/#stability-as-an-interval-over-stiffness-k",
+    "url": "/stoked2d/week1/#stability-as-an-interval-over-stiffness-k",
     
-    "relUrl": "/week1a/#stability-as-an-interval-over-stiffness-k"
+    "relUrl": "/week1/#stability-as-an-interval-over-stiffness-k"
   },"5": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Testing Energy Conservation",
     "content": "The Hamiltonian is for now defined as : . \\[\\mathcal{H} = \\sum_i^N \\left( m_i \\mathbf{\\vec{g}} \\cdot \\mathbf{\\vec{x}}_i + \\frac{1}{2} m_i \\mathbf{\\vec{v}}_i \\cdot \\mathbf{\\vec{v}}_i\\right)\\] And normalized as \\(\\mathcal{H}_{min} = mgh_{min}\\) and \\(\\mathcal{H}_{norm} = \\frac{\\mathcal{H}-\\mathcal{H}_{min} }{\\lVert \\mathcal{H}_{min} \\rVert}\\) for plotting . but appears to be missing a term that is proportional to the compression of the fluid (internal energy potential?) as indicated by oscillations in a resting water column: . | Should \\(U =\\sum_i^N p_i V_i = p_i\\frac{m_i}{\\rho_i}\\) be used to compensate? Can the oscillation even be avoided? | . ",
-    "url": "/stoked2d/week1a/#testing-energy-conservation",
+    "url": "/stoked2d/week1/#testing-energy-conservation",
     
-    "relUrl": "/week1a/#testing-energy-conservation"
+    "relUrl": "/week1/#testing-energy-conservation"
   },"6": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Improving the Acceleration Datatructure",
     "content": "+400 FPS@N=4k / +60% . | Filter by \\(\\lVert \\mathbf{\\vec{x_i} - \\vec{x_j}} \\rVert \\le \\kappa\\) when building neighbour lists instead of saving supersets with all particles in neighbouring grid cells. ~15%@N=4k | Binary search directly in particle handles, don’t build a compact list of filled cells like suggested in Compressed Neighbor Lists for SPH (???). ~30%@N=4k | Use an XYZ curve that is faster to compute than a Morton Code (?) ~15%@N=4k | . ",
-    "url": "/stoked2d/week1a/#improving-the-acceleration-datatructure",
+    "url": "/stoked2d/week1/#improving-the-acceleration-datatructure",
     
-    "relUrl": "/week1a/#improving-the-acceleration-datatructure"
+    "relUrl": "/week1/#improving-the-acceleration-datatructure"
   },"7": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Testing the Acceleration Datatructure",
     "content": "For \\(\\kappa \\in [0.9, 1.0, 1.1], \\, N=5000\\) particles are randomly distributed in \\([-10;10]\\) and the neighbour sets for each compared to the ones computed per brute force in \\(\\mathcal{O}(n^2)\\). This is repeated 10 times. ✅ . ",
-    "url": "/stoked2d/week1a/#testing-the-acceleration-datatructure",
+    "url": "/stoked2d/week1/#testing-the-acceleration-datatructure",
     
-    "relUrl": "/week1a/#testing-the-acceleration-datatructure"
+    "relUrl": "/week1/#testing-the-acceleration-datatructure"
   },"8": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Current State of the Project",
     "content": " ",
-    "url": "/stoked2d/week1a/#current-state-of-the-project",
+    "url": "/stoked2d/week1/#current-state-of-the-project",
     
-    "relUrl": "/week1a/#current-state-of-the-project"
+    "relUrl": "/week1/#current-state-of-the-project"
   },"9": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Questions",
     "content": ". | What does \\(\\sum_j \\left(\\mathbf{(\\vec{x}_i - \\vec{x}_j)} \\odot \\nabla W_{ij} \\right) = -\\frac{1}{V} \\cdot \\mathbf{\\vec{1}}\\) actually mean? Why does it always fail for ideal sampling? | Why did the test for the spiky kernel fail? | Why do the stable parameters differ so wildly from kernel to kernel? | Why did not producing a compact filled cell list improve neighbour search performance? (size of the system?) | How can energy conservation accurately be tracked? | . ",
-    "url": "/stoked2d/week1a/#questions",
+    "url": "/stoked2d/week1/#questions",
     
-    "relUrl": "/week1a/#questions"
+    "relUrl": "/week1/#questions"
   },"10": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Conclusions - After the Meeting",
     "content": ". | \\(\\sum_j \\left(\\mathbf{(\\vec{x}_i - \\vec{x}_j)} \\odot \\nabla W_{ij} \\right) = -\\frac{1}{V} \\cdot \\mathbf{\\vec{1}}\\) actually worked! Error tolerances were to low . | Cubic Spline has 1.3% error, as expected | Double Cosine has 4.7% error | The gradients are now normalized such that this error is zero by applying a constant factor. | . | Remove consistency check with finite difference . | The Spiky Kernel was removed from the simulation. | Kernel normalization in the Cubic Spline kernel was off by a factor of \\(\\frac{1}{h}\\) because of an error in the slides that was copied (p.64). | this was neatly demonstrated in the “Stability as an interval over stiffness k”-Section, where the interval for k was off by exactly \\(\\frac{1}{h}=\\frac{1}{0.03}=33\\frac{1}{3}\\) | . | . ",
-    "url": "/stoked2d/week1a/#conclusions---after-the-meeting",
+    "url": "/stoked2d/week1/#conclusions---after-the-meeting",
     
-    "relUrl": "/week1a/#conclusions---after-the-meeting"
+    "relUrl": "/week1/#conclusions---after-the-meeting"
   },"11": {
     "doc": "Testing Kernels and Datastructures",
     "title": "Testing Kernels and Datastructures",
     "content": " ",
-    "url": "/stoked2d/week1a/",
+    "url": "/stoked2d/week1/",
     
-    "relUrl": "/week1a/"
+    "relUrl": "/week1/"
   },"12": {
-    "doc": "Boundary Handling",
-    "title": "Towards a single non-uniform layer",
-    "content": " ",
-    "url": "/stoked2d/week1b/#towards-a-single-non-uniform-layer",
+    "doc": "Initialization and Boundary Handling",
+    "title": "Jittered Initialization",
+    "content": "Introducing even just \\(0.01h\\) as random jitter when initializing particles can improve stability at the beginning of the simulation: . (example for \\(h=0.05, k=2300, \\nu=0.03\\) water column height of \\(1\\), left is unjittered) . | not very predictable for low sampling resolutions | the absolute and the squared density error \\(E_{abs}, E_{sqrd}\\) of a simulation are defined as: | . \\[\\begin{align} E_{abs} &amp;:= \\int_0^{10s} \\left\\lvert \\frac{\\rho_{avg}}{\\rho_{0}}-1 \\right\\rvert\\\\ E_{sqrd} &amp;:= \\int_0^{10s} \\left(\\frac{\\rho_{avg}}{\\rho_{0}}-1 \\right)^2\\\\ \\end{align}\\] . | plotted against amount of initial random jitter in units of the particle spacing \\(h\\) for \\(h=0.05, k=2000, \\nu=0.03\\): | . | in larger systems, small (\\(1\\%\\)) jitter effectively prevents aliasing artefacts: | . (video slowed down x8 with motion interpolation, left is jittered \\(N=90000, h=0.01, \\lambda = 0.1, k=2000, \\nu=0.01\\)) . ",
+    "url": "/stoked2d/week2/#jittered-initialization",
     
-    "relUrl": "/week1b/#towards-a-single-non-uniform-layer"
+    "relUrl": "/week2/#jittered-initialization"
   },"13": {
-    "doc": "Boundary Handling",
-    "title": "Boundary Handling",
-    "content": " ",
-    "url": "/stoked2d/week1b/",
+    "doc": "Initialization and Boundary Handling",
+    "title": "Towards a single non-uniform layer",
+    "content": ". | Following the 2019 SPH Tutorial, we define for a particle ideally surrounded by fluid on a single layer of boundary particles: . | \\[\\begin{align} \\gamma_1 &amp;:= \\frac{V_i - \\sum_{i_f}W_{i,i_f}}{\\sum_{i_b} W_{i, i_b}} = \\frac{\\frac{1}{h^2} - \\sum_{i_f}W_{i,i_f}}{\\sum_{i_b} W_{i, i_b}}\\\\ \\\\ \\gamma_2 &amp;:= \\frac{\\sum_{i_f}\\nabla W_{i,i_f} \\cdot \\sum_{i_b} W_{i, i_b}}{\\sum_{i_b} W_{i, i_b} \\cdot \\sum_{i_b} W_{i, i_b}} \\end{align}\\] | . | This turns out to be \\(\\gamma_1, \\gamma_2 = 1\\) for a Cubic Spline with \\(h=2\\) in 2D | Higher \\(\\gamma_2\\) decreases stability | Higher \\(\\gamma_1\\) seems to not decrease stability but improve impenetrability | . ",
+    "url": "/stoked2d/week2/#towards-a-single-non-uniform-layer",
     
-    "relUrl": "/week1b/"
+    "relUrl": "/week2/#towards-a-single-non-uniform-layer"
+  },"14": {
+    "doc": "Initialization and Boundary Handling",
+    "title": "State of the Project",
+    "content": "\\(\\) . ",
+    "url": "/stoked2d/week2/#state-of-the-project",
+    
+    "relUrl": "/week2/#state-of-the-project"
+  },"15": {
+    "doc": "Initialization and Boundary Handling",
+    "title": "Initialization and Boundary Handling",
+    "content": " ",
+    "url": "/stoked2d/week2/",
+    
+    "relUrl": "/week2/"
   }
 }

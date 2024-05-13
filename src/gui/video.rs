@@ -1,6 +1,9 @@
 use crate::*;
+use std::fs::File;
 use std::path::Path;
 
+use image::codecs::jpeg::JpegEncoder;
+use image::RgbImage;
 use ndarray::Array3;
 use ocl::prm::Uchar3;
 use video_rs::encode::{Encoder, Settings};
@@ -68,6 +71,22 @@ impl VideoHandler {
             )
             .expect("failed to encode frame");
         self.position = self.position.aligned_with(&self.duration).add();
+    }
+
+    pub fn add_raw_frame(
+        frame: &std::vec::Vec<u8>,
+        frame_number: usize,
+        timestamp: u64,
+        size: (usize, usize),
+    ) {
+        std::fs::create_dir_all(format!("videos/{}", timestamp)).unwrap();
+        let mut file =
+            File::create(format!("videos/{}/{:0>5}.jpg", timestamp, frame_number)).unwrap();
+        let encoder = JpegEncoder::new_with_quality(&mut file, 100);
+        RgbImage::from_raw(size.0 as u32, size.1 as u32, frame.to_vec())
+            .unwrap()
+            .write_with_encoder(encoder)
+            .unwrap();
     }
 
     pub fn finish(&mut self) {

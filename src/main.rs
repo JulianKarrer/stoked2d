@@ -22,7 +22,7 @@ fn main() {
         if cfg!(feature = "gpu") {
             while gpu_version::gpu::run(None) {}
         } else {
-            while simulation::run() {}
+            while simulation::run(None) {}
         }
     });
     window.run_loop(egui_speedy2d::WindowWrapper::new(StokedWindowHandler {}));
