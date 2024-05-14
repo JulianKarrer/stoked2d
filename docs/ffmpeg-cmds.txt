@@ -5,4 +5,10 @@ SLOW DOWN x8:
 ffmpeg -i break_no_jitter.mp4 -filter:v "minterpolate='mi_mode=mci:mc_mode=aobmc:vsbmc=1:fps=480'" testnj.mp4
 ffmpeg -i testnj.mp4 -filter:v "setpts=8.0*PTS" test2nj.mp4
 
+IMAGE SEQUENCE TO VIDEO 
+ffmpeg -framerate 60 -pattern_type glob -i '*.jpg' -an -preset veryslow -pix_fmt yuv420p out.webm
+
+COMPRESS
+ffmpeg -i out.webm -filter:v fps=30 -an -vf scale="736:-1" -c:v libx264 -crf 18 -preset veryslow out2.mp4
+ffmpeg -i out.webm -an -vf scale="736:-1, fps=30" -c:v libvpx-vp9 -b:v 0 -crf 30 -deadline best -row-mt 1 out2.webm
 

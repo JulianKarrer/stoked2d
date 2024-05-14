@@ -50,7 +50,7 @@ lazy_static! {
         DVec2::new(-3.0 + H * 1., -3.0 + H * 1.),
         DVec2::new(0.0, -0.)
     ];
-    // // small water column
+    // //   small water column
     // static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-1.0, -3.0), DVec2::new(1.0, 3.0)];
     // static ref FLUID: [DVec2; 2] = [
     //     DVec2::new(-1.0 + H * 1., -3.0 + H * 1.),
@@ -87,13 +87,13 @@ pub static INITIAL_JITTER: AtomicF64 = AtomicF64::new(0.01 * H);
 // boundary handling
 const BOUNDARY_LAYER_COUNT: usize = 1;
 const USE_GPU_BOUNDARY: bool = true;
-static GAMMA_1: AtomicF64 = AtomicF64::new(1.4);
-static GAMMA_2: AtomicF64 = AtomicF64::new(1.);
+pub static GAMMA_1: AtomicF64 = AtomicF64::new(1.);
+pub static GAMMA_2: AtomicF64 = AtomicF64::new(1.);
 
 /// Viscosity constant Nu
-static NU: AtomicF64 = AtomicF64::new(0.01);
+static NU: AtomicF64 = AtomicF64::new(0.015);
 /// Stiffness constant determining the incompressibility in the state equation
-static K: AtomicF64 = AtomicF64::new(2000.0);
+static K: AtomicF64 = AtomicF64::new(1700.);
 
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
@@ -121,7 +121,7 @@ const WORKGROUP_SIZE: usize = 256;
 // video settings
 const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
-const VIDEO_FPS: usize = 60;
+const VIDEO_FPS: usize = 30;
 const FRAME_TIME: f32 = 1. / (VIDEO_FPS as f32);
 // const FRAME_TIME: f32 = 0.0;
 

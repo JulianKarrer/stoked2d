@@ -92,18 +92,39 @@
   },"13": {
     "doc": "Initialization and Boundary Handling",
     "title": "Towards a single non-uniform layer",
-    "content": ". | Following the 2019 SPH Tutorial, we define for a particle ideally surrounded by fluid on a single layer of boundary particles: . | \\[\\begin{align} \\gamma_1 &amp;:= \\frac{V_i - \\sum_{i_f}W_{i,i_f}}{\\sum_{i_b} W_{i, i_b}} = \\frac{\\frac{1}{h^2} - \\sum_{i_f}W_{i,i_f}}{\\sum_{i_b} W_{i, i_b}}\\\\ \\\\ \\gamma_2 &amp;:= \\frac{\\sum_{i_f}\\nabla W_{i,i_f} \\cdot \\sum_{i_b} W_{i, i_b}}{\\sum_{i_b} W_{i, i_b} \\cdot \\sum_{i_b} W_{i, i_b}} \\end{align}\\] | . | This turns out to be \\(\\gamma_1, \\gamma_2 = 1\\) for a Cubic Spline with \\(h=2\\) in 2D | Higher \\(\\gamma_2\\) decreases stability | Higher \\(\\gamma_1\\) seems to not decrease stability but improve impenetrability | . ",
+    "content": " ",
     "url": "/stoked2d/week2/#towards-a-single-non-uniform-layer",
     
     "relUrl": "/week2/#towards-a-single-non-uniform-layer"
   },"14": {
     "doc": "Initialization and Boundary Handling",
+    "title": "Single uniform layer",
+    "content": ". | Following the 2019 SPH Tutorial, we define for a particle ideally surrounded by fluid on a single layer of boundary particles: . | \\[\\begin{align} \\gamma_1 &amp;:= \\frac{V_i - \\sum_{i_f}W_{i,i_f}}{\\sum_{i_b} W_{i, i_b}} = \\frac{\\frac{1}{h^2} - \\sum_{i_f}W_{i,i_f}}{\\sum_{i_b} W_{i, i_b}}\\\\ \\\\ \\gamma_2 &amp;:= \\frac{\\sum_{i_f}\\nabla W_{i,i_f} \\cdot \\sum_{i_b} W_{i, i_b}}{\\sum_{i_b} W_{i, i_b} \\cdot \\sum_{i_b} W_{i, i_b}} \\end{align}\\] | . | This turns out to be \\(\\gamma_1, \\gamma_2 = 1\\) for a Cubic Spline with \\(h=2\\) in 2D | Higher \\(\\gamma_2\\) decreases stability, the opposite seems true as well | Higher \\(\\gamma_1\\) seems to not decrease stability but improve impenetrability | . ",
+    "url": "/stoked2d/week2/#single-uniform-layer",
+    
+    "relUrl": "/week2/#single-uniform-layer"
+  },"15": {
+    "doc": "Initialization and Boundary Handling",
+    "title": "Single non-uniform layer",
+    "content": "Scrapping the use of \\(\\gamma_1\\) in the density computation and instead calculating \\(m_{i_b}\\) works as described: . | \\[\\rho_i = m_i\\sum_{i_f} W_{i,i_f} + \\sum_{i_f} m_{i_b}W_{i,i_b}\\] | \\[m_{i_b} = \\rho_0 \\cdot V_{0, i_b} =\\rho_0 \\frac{\\gamma_1}{\\sum_{i_{b_b}}W_{i_b, i_{b_b}}}\\] | . WORKS! ✅ . ",
+    "url": "/stoked2d/week2/#single-non-uniform-layer",
+    
+    "relUrl": "/week2/#single-non-uniform-layer"
+  },"16": {
+    "doc": "Initialization and Boundary Handling",
+    "title": "Weird type of instability?",
+    "content": ". | occurs only for very low viscosities \\(\\nu \\le 0.01\\) | only when water starts resting (here: \\(t\\ge 8.6s\\)) | . ",
+    "url": "/stoked2d/week2/#weird-type-of-instability",
+    
+    "relUrl": "/week2/#weird-type-of-instability"
+  },"17": {
+    "doc": "Initialization and Boundary Handling",
     "title": "State of the Project",
-    "content": "\\(\\) . ",
+    "content": " ",
     "url": "/stoked2d/week2/#state-of-the-project",
     
     "relUrl": "/week2/#state-of-the-project"
-  },"15": {
+  },"18": {
     "doc": "Initialization and Boundary Handling",
     "title": "Initialization and Boundary Handling",
     "content": " ",

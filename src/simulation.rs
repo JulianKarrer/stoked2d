@@ -14,6 +14,7 @@ pub fn run(run_for_t: Option<f64>)->bool{
   grid.update_grid(&state.pos, KERNEL_SUPPORT);
   // state.resort(&grid);
   let boundary = Boundary::new(BOUNDARY_LAYER_COUNT);
+  // Boundary::calculate_gammas(&{*SPH_KERNELS.read()}.density);
   let mut current_t = 0.0;
   let mut since_resort = 0;
   // reset history and add first timestep
@@ -156,14 +157,13 @@ fn apply_gravity_and_viscosity(pos: &[DVec2], vel: &[DVec2], acc: &mut[DVec2], d
 
 /// Update the densities at each particle
 fn update_densities(pos: &[DVec2], den: &mut[f64], grid: &Grid, boundary: &Boundary, knl:&KernelType){
-  let gamma1 = GAMMA_1.load(Relaxed);
   pos.par_iter().enumerate().zip(den).for_each(|((i, x_i), rho_i)|{
     *rho_i = 
       M * grid.query_index(i).iter().map(|j| 
         knl.w(x_i, &pos[*j])
       ).sum::<f64>() + 
-      gamma1 * M * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
-        knl.w(x_i, &boundary.pos[*j])
+      boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
+        knl.w(x_i, &boundary.pos[*j]) * &boundary.m[*j]
       ).sum::<f64>();
   });
 }
@@ -223,8 +223,8 @@ fn add_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc: &mut
       -M * grid.query_index(i).iter().map(|j| 
         (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * knl.dw(x_i, &pos[*j])
       ).sum::<DVec2>()
-      -gamma_2 * M * (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
-        knl.dw(x_i, &boundary.pos[*j])
+      -gamma_2 * (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
+        knl.dw(x_i, &boundary.pos[*j]) * boundary.m[*j]
       ).sum::<DVec2>();
   })
 }
@@ -242,8 +242,8 @@ fn overwrite_pressure_accelerations(pos: &[DVec2], den: &[f64], prs: &[f64], acc
       -M * grid.query_index(i).iter().map(|j| 
         (p_i_over_rho_i_squared + prs[*j]/(den[*j]*den[*j])) * knl.dw(x_i, &pos[*j])
       ).sum::<DVec2>()
-      -gamma_2 * M * (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
-        knl.dw(x_i, &boundary.pos[*j])
+      -gamma_2 * (p_i_over_rho_i_squared + p_i*one_over_rho_0_squared) * boundary.grid.query_radius(x_i, &boundary.pos, KERNEL_SUPPORT).iter().map(|j| 
+        knl.dw(x_i, &boundary.pos[*j]) * boundary.m[*j]
       ).sum::<DVec2>();
   })
 }
@@ -393,6 +393,7 @@ impl Attributes{
 /// impenetrability of the boundary.
 pub struct Boundary{
   pub pos:Vec<DVec2>,
+  pub m:Vec<f64>,
   pub grid: Grid,
 }
 
@@ -407,12 +408,13 @@ impl Boundary{
   fn new(layers: usize)->Self{
     // initialize boundary particle positions
     let mut pos = vec![];
+    let mut rng = SmallRng::seed_from_u64(42);
     for i in 0..layers{
       let mut x = BOUNDARY[0].x+H;
       while x <= BOUNDARY[1].x{
         pos.push(DVec2::new(x, BOUNDARY[0].y-i as f64*H));
         pos.push(DVec2::new(x, BOUNDARY[1].y+i as f64*H));
-        x += H
+        x += H * rng.gen_range(0.0..=1.);
       }
     }
     for i in 0..layers{
@@ -420,7 +422,7 @@ impl Boundary{
       while y < BOUNDARY[1].y+(layers) as f64*H{
         pos.push(DVec2::new(BOUNDARY[0].x-i as f64*H, y));
         pos.push(DVec2::new(BOUNDARY[1].x+i as f64*H, y));
-        y += H
+        y += H * rng.gen_range(0.0..=1.);
       }
     }
     // create a grid with the boundary particles
@@ -431,7 +433,62 @@ impl Boundary{
     pos = order.par_iter().map(|i| pos[*i]).collect();
     grid.update_grid(&pos, KERNEL_SUPPORT);
 
-    // return the boundary struct
-    Self{pos, grid}
+    // compute the masses of each boundary particle
+    let mut res = Self{m: vec![0.;pos.len()], pos, grid };
+    res.update_masses();
+    res
   }
+
+  /// Update the virtual masses of the boundary particles, 
+  /// which are calculated as a correcting factor for non-uniformly sampled 
+  /// boudnaries. 
+  /// 
+  /// These masses are computed as: m_i = \frac{ \rho_0 \gamma_1 }{\sum_{i_b} W_{i, i_{b}}}
+  fn update_masses(&mut self){
+    let gamma_1 = GAMMA_1.load(Relaxed);
+    let rho_0 = RHO_ZERO.load(Relaxed);
+    let knl = {SPH_KERNELS.read().clone()}.density;
+    self.m.par_iter_mut().zip(&self.pos).for_each(|(m, x_i)|{
+      *m = rho_0 * gamma_1 / self.grid.query_radius(x_i, &self.pos, KERNEL_SUPPORT).iter().map(|j| 
+        knl.w(x_i, &self.pos[*j])
+      ).sum::<f64>();
+    })
+  }
+
+  /// Calculate and set γ<sub>1</sub> and γ<sub>2</sub> into `GAMMA_1` and `GAMMA_2`.
+  /// -  γ<sub>1</sub>  is the correcting factor for the density computation in a 
+  /// single-layer boundary scenario and depends on the Kernel function, Kernel
+  /// support and dimensionality
+  /// - similarly, γ<sub>2</sub> is the correction factor for the caluclation
+  /// of pressure accelerations.
+  /// - both factors should be one for a 2D Cubic Spline Kernel with 2h support.
+  pub fn calculate_gammas(knl:&KernelType){
+    // the ideal setting should sample points at least within the kernel support range
+    let size = (KERNEL_SUPPORT / H).ceil() + 1.;
+    let size_int = size as i32;
+    let mut x = -size * H;
+    let mut pos: Vec<DVec2> = vec![];
+    // the ideal scenario: fluid resting on a single uniform boundary layer
+    // -> start fluid from y=0
+    while x <= size * H + 10e-12 {
+        for y in 0..size_int {
+            pos.push(DVec2::new(x, y as f64 * H));
+        }
+        x += H;
+    }
+    let bdy: Vec<DVec2> = (-size_int..=size_int)
+        .map(|i| DVec2::new((i as f64) * H, -H))
+        .collect();
+    let x_i = DVec2::ZERO;
+    // calculate gamma 1
+    let fluid_sum: f64 = pos.iter().map(|x_j| knl.w(&x_i, x_j)).sum();
+    let bdy_sum: f64 = bdy.iter().map(|x_j| knl.w(&x_i, x_j)).sum();
+    GAMMA_1.store(((1. / (H * H)) - fluid_sum) / bdy_sum, Relaxed);
+    // calculate gamma 2
+    let grad_fluid_sum: DVec2 = pos.iter().map(|x_j| -knl.dw(&x_i, x_j)).sum::<DVec2>();
+    let grad_bdy_sum: DVec2 = bdy.iter().map(|x_j| knl.dw(&x_i, x_j)).sum::<DVec2>();
+    let gamma_2 = (grad_fluid_sum.dot(grad_bdy_sum)) / (grad_bdy_sum.dot(grad_bdy_sum));
+    GAMMA_2.store(gamma_2, Relaxed)
+  }
+
 }

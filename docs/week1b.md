@@ -56,6 +56,7 @@ E_{sqrd} &:= \int_0^{10s} \left(\frac{\rho_{avg}}{\rho_{0}}-1 \right)^2\\
 
 # Towards a single non-uniform layer
 
+## Single uniform layer
 - Following [the 2019 SPH Tutorial](https://sph-tutorial.physics-simulation.org/pdf/SPH_Tutorial.pdf){:target="_blank"}, we define for a particle ideally surrounded by fluid on a single layer of boundary particles:
   - $$\begin{align}
   \gamma_1 &:= \frac{V_i - \sum_{i_f}W_{i,i_f}}{\sum_{i_b} W_{i, i_b}} = \frac{\frac{1}{h^2} - \sum_{i_f}W_{i,i_f}}{\sum_{i_b} W_{i, i_b}}\\
@@ -64,14 +65,26 @@ E_{sqrd} &:= \int_0^{10s} \left(\frac{\rho_{avg}}{\rho_{0}}-1 \right)^2\\
   \end{align}$$
 
 - This turns out to be $$\gamma_1, \gamma_2 = 1$$ for a Cubic Spline with $$h=2$$ in 2D
-- Higher $$\gamma_2$$ decreases stability
+- Higher $$\gamma_2$$ decreases stability, the opposite seems true as well
 - Higher $$\gamma_1$$ seems to not decrease stability but improve impenetrability
 
+## Single non-uniform layer
+Scrapping the use of $$\gamma_1$$ in the density computation and instead calculating $$m_{i_b}$$ works [as described](https://sph-tutorial.physics-simulation.org/pdf/SPH_Tutorial.pdf):
+- $$\rho_i = m_i\sum_{i_f} W_{i,i_f} + \sum_{i_f} m_{i_b}W_{i,i_b}$$ 
+-  $$m_{i_b} = \rho_0 \cdot V_{0, i_b} =\rho_0 \frac{\gamma_1}{\sum_{i_{b_b}}W_{i_b, i_{b_b}}}$$
+
+WORKS! ✅ 
+
+# Weird type of instability?
+<video style="width:100%;" loop muted autoplay controls>
+  <source src="{{ '/assets/week2/instability.mp4' | relative_url }}" type="video/mp4">
+</video>
+- occurs only for very low viscosities $$\nu \le 0.01$$
+- only when water starts resting *(here: $$t\ge 8.6s$$)*
+
+{% include plot_den_ham_1715697109.html %}
+
 # State of the Project
-
-
-
  <video style="width:100%;" loop muted autoplay controls>
-    <source src="{{ '/assets/week2/one_layer_dambreak.mp4' | relative_url }}" type="video/mp4">
+    <source src="{{ '/assets/week2/one_layer_dambreak_small.mp4' | relative_url }}" type="video/mp4">
   </video>
-$$$$

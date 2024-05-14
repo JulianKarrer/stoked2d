@@ -435,7 +435,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         ui.add(
                             egui::DragValue::new(&mut gamma_1)
                                 .speed(0.001)
-                                .clamp_range(1.0..=2.0),
+                                .clamp_range(0.1..=100.0),
                         );
                         ui.label("Boundary density multiplier γ₁");
                     });
@@ -443,7 +443,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         ui.add(
                             egui::DragValue::new(&mut gamma_2)
                                 .speed(0.001)
-                                .clamp_range(1.0..=2.0),
+                                .clamp_range(0.1..=100.0),
                         );
                         ui.label("Boundary pressure force multiplier γ₂");
                     });
