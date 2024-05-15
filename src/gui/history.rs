@@ -3,9 +3,9 @@ use ocl::prm::{Float, Float2};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
+    attributes::Attributes,
     datastructure::Grid,
     gpu_version::gpu::len_float2,
-    simulation::Attributes,
     utils::{average_val, hamiltonian},
     BOUNDARY, H, M,
 };

@@ -1,4 +1,4 @@
-use stoked2d::{simulation::Boundary, sph::KernelType, GAMMA_1, GAMMA_2};
+use stoked2d::{boundary::Boundary, sph::KernelType, GAMMA_1, GAMMA_2};
 
 fn main() {
     Boundary::calculate_gammas(&KernelType::GaussSpline3);

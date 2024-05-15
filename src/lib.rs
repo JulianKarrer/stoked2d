@@ -20,6 +20,8 @@ pub mod gui {
     pub mod plot;
     pub mod video;
 }
+pub mod attributes;
+pub mod boundary;
 pub mod datastructure;
 pub mod simulation;
 pub mod sph;
@@ -47,8 +49,8 @@ lazy_static! {
     // dam break
     static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-3.0, -3.0), DVec2::new(3.0, 3.0)];
     static ref FLUID: [DVec2; 2] = [
-        DVec2::new(-3.0 + H * 1., -3.0 + H * 1.),
-        DVec2::new(0.0, -0.)
+        DVec2::new(-1.0 + H * 1., -1.0 + H * 1.),
+        DVec2::new(1.0, 1.)
     ];
     // //   small water column
     // static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-1.0, -3.0), DVec2::new(1.0, 3.0)];
@@ -93,7 +95,7 @@ pub static GAMMA_2: AtomicF64 = AtomicF64::new(1.);
 /// Viscosity constant Nu
 static NU: AtomicF64 = AtomicF64::new(0.015);
 /// Stiffness constant determining the incompressibility in the state equation
-static K: AtomicF64 = AtomicF64::new(1700.);
+static K: AtomicF64 = AtomicF64::new(1250.);
 
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
@@ -122,8 +124,8 @@ const WORKGROUP_SIZE: usize = 256;
 const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
 const VIDEO_FPS: usize = 30;
-const FRAME_TIME: f32 = 1. / (VIDEO_FPS as f32);
-// const FRAME_TIME: f32 = 0.0;
+// const FRAME_TIME: f32 = 1. / (VIDEO_FPS as f32);
+const FRAME_TIME: f32 = 0.0;
 
 /// Get the current timestamp in microseconds
 fn timestamp() -> u128 {

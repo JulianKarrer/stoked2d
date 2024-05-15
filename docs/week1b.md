@@ -38,7 +38,7 @@ E_{sqrd} &:= \int_0^{10s} \left(\frac{\rho_{avg}}{\rho_{0}}-1 \right)^2\\
 
 ![Plot of Density Error over initial Jitter]({{'/assets/week2/plot_jitter_error.png' | relative_url}})
 
-- in larger systems, small ($$1\%$$) jitter effectively prevents aliasing artefacts:
+- in larger systems, small ($$0.01h$$) jitter effectively prevents aliasing artefacts:
 
 <div style="display: flex;">
   <div style="width:50%">
@@ -72,19 +72,41 @@ E_{sqrd} &:= \int_0^{10s} \left(\frac{\rho_{avg}}{\rho_{0}}-1 \right)^2\\
 Scrapping the use of $$\gamma_1$$ in the density computation and instead calculating $$m_{i_b}$$ works [as described](https://sph-tutorial.physics-simulation.org/pdf/SPH_Tutorial.pdf):
 - $$\rho_i = m_i\sum_{i_f} W_{i,i_f} + \sum_{i_f} m_{i_b}W_{i,i_b}$$ 
 -  $$m_{i_b} = \rho_0 \cdot V_{0, i_b} =\rho_0 \frac{\gamma_1}{\sum_{i_{b_b}}W_{i_b, i_{b_b}}}$$
+- Add image-based initialization:
+  - blue pixels correspond to fluid 
+  - black pixels are boundaries
 
-WORKS! ✅ 
+- IT WORKS! ✅ 
+<video style="width:100%;" loop muted autoplay controls>
+    <source src="{{ '/assets/week2/splishsploosh.mp4' | relative_url }}" type="video/mp4">
+  </video>
+$$\lambda = 0.01, k=1250, \nu=0.015$$ with maximum compression $$\le 0.24\%$$
 
-# Weird type of instability?
+- Water levels equal out as they should:
+<video style="width:100%;" loop muted autoplay controls>
+    <source src="{{ '/assets/week2/archimedes.mp4' | relative_url }}" type="video/mp4">
+  </video>
+$$\lambda = 0.1, k=1250, \nu=0.015$$ with maximum compression $$\le 0.4\%$$
+
+# Problems
+## Weird type of instability for large $$k$$
 <video style="width:100%;" loop muted autoplay controls>
   <source src="{{ '/assets/week2/instability.mp4' | relative_url }}" type="video/mp4">
 </video>
-- occurs only for very low viscosities $$\nu \le 0.01$$
+- only for high values of $$k>1500$$
+- especially for very low viscosities $$\nu \le 0.01$$
 - only when water starts resting *(here: $$t\ge 8.6s$$)*
 
 {% include plot_den_ham_1715697109.html %}
 
-# State of the Project
- <video style="width:100%;" loop muted autoplay controls>
-    <source src="{{ '/assets/week2/one_layer_dambreak_small.mp4' | relative_url }}" type="video/mp4">
-  </video>
+## Initialization
+<video style="width:100%;" loop muted autoplay controls>
+  <source src="{{ '/assets/week2/exploding_drop.mp4' | relative_url }}" type="video/mp4">
+</video>
+
+
+- density at $$t=0$$ is:
+  - highly inflated at boundary
+  - underestimated at the free surface
+  - ![Initial Density]({{ '/assets/week2/00000.jpg' | relative_url }})
+

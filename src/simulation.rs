@@ -1,19 +1,18 @@
 use crate::{datastructure::Grid, sph::KernelType,  *};
 use std::{fmt::Debug, time::Duration};
-use rand::{rngs::SmallRng, Rng, SeedableRng};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
 use atomic_enum::atomic_enum;
 
-use self::{gui::gui::{REQUEST_RESTART, SIMULATION_TOGGLE}, utils::average_val};
+use self::{attributes::Attributes, boundary::Boundary, gui::gui::{REQUEST_RESTART, SIMULATION_TOGGLE}, utils::average_val};
 
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub fn run(run_for_t: Option<f64>)->bool{
-  let mut state = Attributes::new();
+  let mut state = Attributes::from_image("setting3.png", 0.01);
   let mut grid = Grid::new(state.pos.len());
   grid.update_grid(&state.pos, KERNEL_SUPPORT);
   // state.resort(&grid);
-  let boundary = Boundary::new(BOUNDARY_LAYER_COUNT);
+  let boundary = Boundary::from_image("setting3.png", 0.01);
   // Boundary::calculate_gammas(&{*SPH_KERNELS.read()}.density);
   let mut current_t = 0.0;
   let mut since_resort = 0;
@@ -328,167 +327,4 @@ impl std::fmt::Display for PressureEquation{
       PressureEquation::ClampedCompressible => "k·((ρᵢ/ρ₀)⁷-1)",
     })
   }
-}
-
-/// Holds all particle data as a struct of arrays
-pub struct Attributes{
-  pub pos:Vec<DVec2>, 
-  pub vel:Vec<DVec2>, 
-  pub acc:Vec<DVec2>, 
-  pub prs:Vec<f64>,
-  pub den:Vec<f64>,
-}
-
-impl Attributes{
-  /// Initialize a new set of particles attributes, filling the area within the
-  /// box given by FLUID with particles using spacing H
-  fn new()->Self{
-    // estimate the number of particles beforehand for allocation
-    let n: usize = ((FLUID[1].x-FLUID[0].x)/(H) + 1.0).ceil() as usize * ((FLUID[1].y-FLUID[0].y)/(H) + 1.0).ceil() as usize;
-    println!("{}",n);
-    // allocation
-    let mut pos:Vec<DVec2> = Vec::with_capacity(n); 
-    let mut vel:Vec<DVec2> = Vec::with_capacity(n); 
-    let mut acc:Vec<DVec2> = Vec::with_capacity(n); 
-    // initialization
-    let jitter = INITIAL_JITTER.load(Relaxed);
-    let mut small_rng = SmallRng::seed_from_u64(42);
-    let mut x = FLUID[0].x;
-    let mut y = FLUID[0].y;
-    while y <= FLUID[1].y{
-      while x <= FLUID[1].x {
-        pos.push(DVec2::new(x, y) + DVec2::new(
-          small_rng.gen_range(-jitter..=jitter), 
-          small_rng.gen_range(-jitter..=jitter)
-        ));
-        vel.push(DVec2::ZERO);
-        acc.push(DVec2::ZERO);
-        x += H;
-      }
-      x = FLUID[0].x;
-      y += H;
-    }
-    let prs = vec![0.0;pos.len()];
-    let den = vec![M/(H*H);pos.len()];
-    // return new set of attributes
-    Self { pos, vel, acc, prs, den }
-  }
-
-  /// Resort all particle attributes according to some given order, which must be
-  /// a permutation of (0..NUMBER_OF_PARTICLES). This is meant to eg. improve cache-hit-rates
-  /// by employing the same sorting as the acceleration datastructure provides for neighbourhood queries.
-  fn resort(&mut self, grid: &Grid){
-    // extract the order of the attributes according to cell-wise z-ordering
-    let order:Vec<usize> = grid.handles.par_iter().map(|h|h.index).collect();
-    debug_assert!(order.len() == self.pos.len());
-    // re-order relevant particle attributes in accordance with the order
-    self.pos = order.par_iter().map(|i| self.pos[*i]).collect();
-    self.vel = order.par_iter().map(|i| self.vel[*i]).collect();
-  }
-}
-
-/// A struct representing a set of boundary particles and a respective data structure
-/// for querying their positions which can be used to mirror pressure forces, creating
-/// static boundaries for the simulation that use the SPH pressure solver to enforce
-/// impenetrability of the boundary.
-pub struct Boundary{
-  pub pos:Vec<DVec2>,
-  pub m:Vec<f64>,
-  pub grid: Grid,
-}
-
-impl Boundary{
-  /// Creates a new set of boundary particles in the pos Vec, with an accompanying
-  /// grid to query for boundary neighbours. 
-  /// The initialization creates layers of particles around the rectangle specified by 
-  /// the static BOUNDARY. 
-  /// 
-  /// The internal grid is not meant to be updated, since the boundary is static.
-  /// Boundary structs can and should therefore always be immutable.
-  fn new(layers: usize)->Self{
-    // initialize boundary particle positions
-    let mut pos = vec![];
-    let mut rng = SmallRng::seed_from_u64(42);
-    for i in 0..layers{
-      let mut x = BOUNDARY[0].x+H;
-      while x <= BOUNDARY[1].x{
-        pos.push(DVec2::new(x, BOUNDARY[0].y-i as f64*H));
-        pos.push(DVec2::new(x, BOUNDARY[1].y+i as f64*H));
-        x += H * rng.gen_range(0.0..=1.);
-      }
-    }
-    for i in 0..layers{
-      let mut y = BOUNDARY[0].y-(layers-1) as f64*H;
-      while y < BOUNDARY[1].y+(layers) as f64*H{
-        pos.push(DVec2::new(BOUNDARY[0].x-i as f64*H, y));
-        pos.push(DVec2::new(BOUNDARY[1].x+i as f64*H, y));
-        y += H * rng.gen_range(0.0..=1.);
-      }
-    }
-    // create a grid with the boundary particles
-    let mut grid = Grid::new(pos.len());
-    grid.update_grid(&pos, KERNEL_SUPPORT);
-    // immediately resort the positions vector for spatial locality
-    let order:Vec<usize> = grid.handles.par_iter().map(|h|h.index).collect();
-    pos = order.par_iter().map(|i| pos[*i]).collect();
-    grid.update_grid(&pos, KERNEL_SUPPORT);
-
-    // compute the masses of each boundary particle
-    let mut res = Self{m: vec![0.;pos.len()], pos, grid };
-    res.update_masses();
-    res
-  }
-
-  /// Update the virtual masses of the boundary particles, 
-  /// which are calculated as a correcting factor for non-uniformly sampled 
-  /// boudnaries. 
-  /// 
-  /// These masses are computed as: m_i = \frac{ \rho_0 \gamma_1 }{\sum_{i_b} W_{i, i_{b}}}
-  fn update_masses(&mut self){
-    let gamma_1 = GAMMA_1.load(Relaxed);
-    let rho_0 = RHO_ZERO.load(Relaxed);
-    let knl = {SPH_KERNELS.read().clone()}.density;
-    self.m.par_iter_mut().zip(&self.pos).for_each(|(m, x_i)|{
-      *m = rho_0 * gamma_1 / self.grid.query_radius(x_i, &self.pos, KERNEL_SUPPORT).iter().map(|j| 
-        knl.w(x_i, &self.pos[*j])
-      ).sum::<f64>();
-    })
-  }
-
-  /// Calculate and set γ<sub>1</sub> and γ<sub>2</sub> into `GAMMA_1` and `GAMMA_2`.
-  /// -  γ<sub>1</sub>  is the correcting factor for the density computation in a 
-  /// single-layer boundary scenario and depends on the Kernel function, Kernel
-  /// support and dimensionality
-  /// - similarly, γ<sub>2</sub> is the correction factor for the caluclation
-  /// of pressure accelerations.
-  /// - both factors should be one for a 2D Cubic Spline Kernel with 2h support.
-  pub fn calculate_gammas(knl:&KernelType){
-    // the ideal setting should sample points at least within the kernel support range
-    let size = (KERNEL_SUPPORT / H).ceil() + 1.;
-    let size_int = size as i32;
-    let mut x = -size * H;
-    let mut pos: Vec<DVec2> = vec![];
-    // the ideal scenario: fluid resting on a single uniform boundary layer
-    // -> start fluid from y=0
-    while x <= size * H + 10e-12 {
-        for y in 0..size_int {
-            pos.push(DVec2::new(x, y as f64 * H));
-        }
-        x += H;
-    }
-    let bdy: Vec<DVec2> = (-size_int..=size_int)
-        .map(|i| DVec2::new((i as f64) * H, -H))
-        .collect();
-    let x_i = DVec2::ZERO;
-    // calculate gamma 1
-    let fluid_sum: f64 = pos.iter().map(|x_j| knl.w(&x_i, x_j)).sum();
-    let bdy_sum: f64 = bdy.iter().map(|x_j| knl.w(&x_i, x_j)).sum();
-    GAMMA_1.store(((1. / (H * H)) - fluid_sum) / bdy_sum, Relaxed);
-    // calculate gamma 2
-    let grad_fluid_sum: DVec2 = pos.iter().map(|x_j| -knl.dw(&x_i, x_j)).sum::<DVec2>();
-    let grad_bdy_sum: DVec2 = bdy.iter().map(|x_j| knl.dw(&x_i, x_j)).sum::<DVec2>();
-    let gamma_2 = (grad_fluid_sum.dot(grad_bdy_sum)) / (grad_bdy_sum.dot(grad_bdy_sum));
-    GAMMA_2.store(gamma_2, Relaxed)
-  }
-
 }
