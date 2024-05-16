@@ -46,18 +46,18 @@ const VELOCITY_EPSILON: f64 = 0.00001;
 
 // SIMULATION RELATED CONSTANTS AND ATOMICS
 lazy_static! {
-    // dam break
-    static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-3.0, -3.0), DVec2::new(3.0, 3.0)];
-    static ref FLUID: [DVec2; 2] = [
-        DVec2::new(-1.0 + H * 1., -1.0 + H * 1.),
-        DVec2::new(1.0, 1.)
-    ];
-    // //   small water column
-    // static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-1.0, -3.0), DVec2::new(1.0, 3.0)];
+    // // dam break
+    // static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-3.0, -3.0), DVec2::new(3.0, 3.0)];
     // static ref FLUID: [DVec2; 2] = [
-    //     DVec2::new(-1.0 + H * 1., -3.0 + H * 1.),
-    //     DVec2::new(1.0, -0.)
+    //     DVec2::new(-1.0 + H * 1., -1.0 + H * 1.),
+    //     DVec2::new(1.0, 1.)
     // ];
+    //   small water column
+    static ref BOUNDARY: [DVec2; 2] = [DVec2::new(-1.0, -3.0), DVec2::new(1.0, 3.0)];
+    static ref FLUID: [DVec2; 2] = [
+        DVec2::new(-1.0 + H * 1., -3.0 + H * 1.),
+        DVec2::new(1.0, -0.)
+    ];
 
     static ref HARD_BOUNDARY: Arc<RwLock<[Float2; 2]>> =  Arc::new(RwLock::new([
         Float2::new(

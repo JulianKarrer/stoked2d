@@ -14,8 +14,10 @@ use self::{
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub fn run(run_for_t: Option<f64>) -> bool {
-    let boundary = Boundary::from_image("setting3.png", 0.01, &{ *SPH_KERNELS.read() }.density);
-    let mut state = Attributes::from_image("setting3.png", 0.01, &boundary);
+    let name = "setting4.png";
+    let boundary = Boundary::from_image(name, 0.01, &{ *SPH_KERNELS.read() }.density);
+    let mut state = Attributes::from_image(name, 0.01, &boundary);
+
     // state.resort(&grid);
     let mut current_t = 0.0;
     let mut since_resort = 0;
