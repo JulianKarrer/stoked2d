@@ -84,53 +84,53 @@
     "relUrl": "/week1/"
   },"12": {
     "doc": "Initialization and Boundary Handling",
-    "title": "Jittered Initialization",
-    "content": "Introducing even just \\(0.01h\\) as random jitter when initializing particles can improve stability at the beginning of the simulation: . (example for \\(h=0.05, k=2300, \\nu=0.03\\) water column height of \\(1\\), left is unjittered) . | not very predictable for low sampling resolutions | the absolute and the squared density error \\(E_{abs}, E_{sqrd}\\) of a simulation are defined as: | . \\[\\begin{align} E_{abs} &amp;:= \\int_0^{10s} \\left\\lvert \\frac{\\rho_{avg}}{\\rho_{0}}-1 \\right\\rvert\\\\ E_{sqrd} &amp;:= \\int_0^{10s} \\left(\\frac{\\rho_{avg}}{\\rho_{0}}-1 \\right)^2\\\\ \\end{align}\\] . | plotted against amount of initial random jitter in units of the particle spacing \\(h\\) for \\(h=0.05, k=2000, \\nu=0.03\\): | . | in larger systems, small (\\(0.01h\\)) jitter effectively prevents aliasing artefacts: | . (video slowed down x8 with motion interpolation, left is jittered \\(N=90000, h=0.01, \\lambda = 0.1, k=2000, \\nu=0.01\\)) . ",
-    "url": "/stoked2d/week2/#jittered-initialization",
-    
-    "relUrl": "/week2/#jittered-initialization"
-  },"13": {
-    "doc": "Initialization and Boundary Handling",
     "title": "Towards a single non-uniform layer",
     "content": " ",
     "url": "/stoked2d/week2/#towards-a-single-non-uniform-layer",
     
     "relUrl": "/week2/#towards-a-single-non-uniform-layer"
-  },"14": {
+  },"13": {
     "doc": "Initialization and Boundary Handling",
     "title": "Single uniform layer",
     "content": ". | Following the 2019 SPH Tutorial, we define for a particle ideally surrounded by fluid on a single layer of boundary particles: . | \\[\\begin{align} \\gamma_1 &amp;:= \\frac{V_i - \\sum_{i_f}W_{i,i_f}}{\\sum_{i_b} W_{i, i_b}} = \\frac{\\frac{1}{h^2} - \\sum_{i_f}W_{i,i_f}}{\\sum_{i_b} W_{i, i_b}}\\\\ \\\\ \\gamma_2 &amp;:= \\frac{\\sum_{i_f}\\nabla W_{i,i_f} \\cdot \\sum_{i_b} W_{i, i_b}}{\\sum_{i_b} W_{i, i_b} \\cdot \\sum_{i_b} W_{i, i_b}} \\end{align}\\] | . | This turns out to be \\(\\gamma_1, \\gamma_2 = 1\\) for a Cubic Spline with \\(h=2\\) in 2D | Higher \\(\\gamma_2\\) decreases stability, the opposite seems true as well | Higher \\(\\gamma_1\\) seems to not decrease stability but improve impenetrability | . ",
     "url": "/stoked2d/week2/#single-uniform-layer",
     
     "relUrl": "/week2/#single-uniform-layer"
-  },"15": {
+  },"14": {
     "doc": "Initialization and Boundary Handling",
     "title": "Single non-uniform layer",
     "content": "Scrapping the use of \\(\\gamma_1\\) in the density computation and instead calculating \\(m_{i_b}\\) works as described: . | \\[\\rho_i = m_i\\sum_{i_f} W_{i,i_f} + \\sum_{i_f} m_{i_b}W_{i,i_b}\\] | \\[m_{i_b} = \\rho_0 \\cdot V_{0, i_b} =\\rho_0 \\frac{\\gamma_1}{\\sum_{i_{b_b}}W_{i_b, i_{b_b}}}\\] | Add image-based initialization: . | blue pixels correspond to fluid | black pixels are boundaries | . | IT WORKS! ✅ | . \\(\\lambda = 0.01, k=1250, \\nu=0.015\\) with maximum compression \\(\\le 0.24\\%\\) . | Water levels equal out as they should: | . \\(\\lambda = 0.1, k=1250, \\nu=0.015\\) with maximum compression \\(\\le 0.4\\%\\) . ",
     "url": "/stoked2d/week2/#single-non-uniform-layer",
     
     "relUrl": "/week2/#single-non-uniform-layer"
+  },"15": {
+    "doc": "Initialization and Boundary Handling",
+    "title": "Jittered Initialization",
+    "content": "Introducing even just \\(0.01h\\) as random jitter when initializing particles can improve stability at the beginning of the simulation: . (example for \\(h=0.05, k=2300, \\nu=0.03\\) water column height of \\(1\\), left is unjittered) . | not very predictable for low sampling resolutions | the absolute and the squared density error \\(E_{abs}, E_{sqrd}\\) of a simulation are defined as: | . \\[\\begin{align} E_{abs} &amp;:= \\int_0^{10s} \\left\\lvert \\frac{\\rho_{avg}}{\\rho_{0}}-1 \\right\\rvert\\\\ E_{sqrd} &amp;:= \\int_0^{10s} \\left(\\frac{\\rho_{avg}}{\\rho_{0}}-1 \\right)^2\\\\ \\end{align}\\] . | plotted against amount of initial random jitter in units of the particle spacing \\(h\\) for \\(h=0.05, k=2000, \\nu=0.03\\): | . | in larger systems, small (\\(0.01h\\)) jitter effectively prevents aliasing artefacts: | . (video slowed down x8 with motion interpolation, left is jittered \\(N=90000, h=0.01, \\lambda = 0.1, k=2000, \\nu=0.01\\)) . ",
+    "url": "/stoked2d/week2/#jittered-initialization",
+    
+    "relUrl": "/week2/#jittered-initialization"
   },"16": {
+    "doc": "Initialization and Boundary Handling",
+    "title": "Mass Initialization",
+    "content": ". | density at \\(t=0\\): . | is highly inflated at ‘oversampled’ boundary | is underestimated at the free surface | produces a shockwave that leads to splashes | . | . Countermeasures: . | initialize in hexagonal grid for more stability | instead of \\(m_i := h^2\\) for \\(\\rho_0 = 1\\), use: . | \\[m_i = \\frac{\\rho_0}{\\frac{1}{V_i}} = \\frac{\\rho_0}{\\sum_{j_f}W_{ij_f} + \\sum_{j_b}W_{ij_b} * \\frac{m_{j_b}}{m_0}}\\] | . | don’t place fluid samples within \\(h\\) radius of a boundary sample | . ",
+    "url": "/stoked2d/week2/#mass-initialization",
+    
+    "relUrl": "/week2/#mass-initialization"
+  },"17": {
     "doc": "Initialization and Boundary Handling",
     "title": "Problems",
     "content": " ",
     "url": "/stoked2d/week2/#problems",
     
     "relUrl": "/week2/#problems"
-  },"17": {
+  },"18": {
     "doc": "Initialization and Boundary Handling",
     "title": "Weird type of instability for large \\(k\\)",
     "content": ". | only for high values of \\(k&gt;1500\\) | especially for very low viscosities \\(\\nu \\le 0.01\\) | only when water starts resting (here: \\(t\\ge 8.6s\\)) | . ",
     "url": "/stoked2d/week2/#weird-type-of-instability-for-large-k",
     
     "relUrl": "/week2/#weird-type-of-instability-for-large-k"
-  },"18": {
-    "doc": "Initialization and Boundary Handling",
-    "title": "Initialization",
-    "content": ". | density at \\(t=0\\) is: . | highly inflated at boundary | underestimated at the free surface | | . | . ",
-    "url": "/stoked2d/week2/#initialization",
-    
-    "relUrl": "/week2/#initialization"
   },"19": {
     "doc": "Initialization and Boundary Handling",
     "title": "Initialization and Boundary Handling",

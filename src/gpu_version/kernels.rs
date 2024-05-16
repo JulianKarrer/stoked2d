@@ -6,8 +6,8 @@ use ocl::{
 use super::buffers::GpuBuffers;
 use crate::{
     sph::KERNEL_CUBIC_NORMALIZE, utils::next_multiple, BDY_MIN, BOUNDARY, GRAVITY, H,
-    HARD_BOUNDARY, INITIAL_DT, K, KERNEL_SUPPORT, LAMBDA, M, MAX_DT, NU, RHO_ZERO,
-    VELOCITY_EPSILON, VIDEO_HEIGHT_WORLD, VIDEO_SIZE, WARP, WORKGROUP_SIZE,
+    HARD_BOUNDARY, INITIAL_DT, K, KERNEL_SUPPORT, LAMBDA, MAX_DT, NU, RHO_ZERO, VELOCITY_EPSILON,
+    VIDEO_HEIGHT_WORLD, VIDEO_SIZE, WARP, WORKGROUP_SIZE,
 };
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -62,8 +62,8 @@ impl Kernels {
             .arg(&b.pos)
             .arg(&b.vel)
             .arg(&b.acc)
-            .arg(HARD_BOUNDARY[0])
-            .arg(HARD_BOUNDARY[1])
+            .arg(HARD_BOUNDARY.read()[0])
+            .arg(HARD_BOUNDARY.read()[1])
             .arg(n)
             .build()
             .unwrap();
@@ -79,7 +79,7 @@ impl Kernels {
             .arg(&b.bdy)
             .arg(&b.bdy_handles)
             .arg(&b.bdy_neighbours)
-            .arg(M as f32)
+            .arg((H * H) as f32) // mass
             .arg(KERNEL_CUBIC_NORMALIZE as f32)
             .arg(H as f32)
             .arg(n)
@@ -96,7 +96,7 @@ impl Kernels {
             .arg(&b.den)
             .arg(&b.handles)
             .arg(&b.neighbours)
-            .arg(M as f32)
+            .arg((H * H) as f32) // mass
             .arg(KERNEL_CUBIC_NORMALIZE as f32)
             .arg(H as f32)
             .arg(n)
@@ -114,7 +114,7 @@ impl Kernels {
             .arg(&b.bdy)
             .arg(&b.bdy_handles)
             .arg(&b.bdy_neighbours)
-            .arg(M as f32)
+            .arg((H * H) as f32) // mass
             .arg(KERNEL_CUBIC_NORMALIZE as f32)
             .arg(H as f32)
             .arg(n)
@@ -294,7 +294,7 @@ impl Kernels {
             .arg(Float2::new(BOUNDARY[1][0] as f32, BOUNDARY[1][1] as f32))
             .arg(KERNEL_CUBIC_NORMALIZE as f32)
             .arg(H as f32)
-            .arg(M as f32)
+            .arg((H * H) as f32) // mass
             .arg(RHO_ZERO.load(Relaxed) as f32)
             .global_work_size(VIDEO_SIZE.0 * VIDEO_SIZE.1)
             .build()

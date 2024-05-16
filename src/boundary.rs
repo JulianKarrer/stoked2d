@@ -1,9 +1,10 @@
 use crate::{
-    datastructure::Grid, sph::KernelType, BOUNDARY, GAMMA_1, GAMMA_2, H, KERNEL_SUPPORT, RHO_ZERO,
-    SPH_KERNELS,
+    datastructure::Grid, sph::KernelType, utils::is_black, BOUNDARY, GAMMA_1, GAMMA_2, H,
+    HARD_BOUNDARY, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS,
 };
 use glam::DVec2;
 use image::open;
+use ocl::prm::Float2;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelBridge,
@@ -24,7 +25,7 @@ pub struct Boundary {
 impl Boundary {
     /// Create a `Boundary` from a vector of boundary particle positions as generated in
     /// `Boundary::new` or `Boundary::from_image`.
-    fn boundary_from_positions(pos: Vec<DVec2>) -> Self {
+    fn boundary_from_positions(pos: Vec<DVec2>, knl: &KernelType) -> Self {
         let mut pos = pos;
         // create a grid with the boundary particles
         let mut grid = Grid::new(pos.len());
@@ -34,6 +35,8 @@ impl Boundary {
         pos = order.par_iter().map(|i| pos[*i]).collect();
         grid.update_grid(&pos, KERNEL_SUPPORT);
 
+        // compute gamma values
+        Boundary::calculate_gammas(knl);
         // compute the masses of each boundary particle
         let mut res = Self {
             m: vec![0.; pos.len()],
@@ -41,6 +44,39 @@ impl Boundary {
             grid,
         };
         res.update_masses();
+        // set the hard boundary
+        let xmin = res
+            .pos
+            .par_iter()
+            .min_by(|a, b| a.x.total_cmp(&b.x))
+            .unwrap()
+            .x;
+        let xmax = res
+            .pos
+            .par_iter()
+            .min_by(|a, b| b.x.total_cmp(&a.x))
+            .unwrap()
+            .x;
+        let ymin = res
+            .pos
+            .par_iter()
+            .min_by(|a, b| a.y.total_cmp(&b.y))
+            .unwrap()
+            .y;
+        let ymax = res
+            .pos
+            .par_iter()
+            .min_by(|a, b| b.y.total_cmp(&a.y))
+            .unwrap()
+            .y;
+        {
+            *HARD_BOUNDARY.write() = [
+                Float2::new(xmin as f32, ymin as f32),
+                Float2::new(xmax as f32, ymax as f32),
+            ];
+        }
+        println!("xmin{} xmax{} ymin{} ymax{}", xmin, xmax, ymin, ymax);
+        // return the result
         res
     }
 
@@ -51,7 +87,7 @@ impl Boundary {
     ///
     /// The internal grid is not meant to be updated, since the boundary is static.
     /// Boundary structs can and should therefore always be immutable.
-    pub fn new(layers: usize) -> Self {
+    pub fn new(layers: usize, knl: &KernelType) -> Self {
         // initialize boundary particle positions
         let mut pos = vec![];
         let mut rng = SmallRng::seed_from_u64(42);
@@ -71,14 +107,14 @@ impl Boundary {
                 y += H * rng.gen_range(0.0..=1.);
             }
         }
-        Self::boundary_from_positions(pos)
+        Self::boundary_from_positions(pos, knl)
     }
 
     /// Generate a new boundary particle set from a path to an image.
     /// - each pixel in the input image has a length given in`spacing`
     /// - the centre of the image will be centred around the origin
     /// - all black pixels are boundaries (r,g,b < 10 and alpha > 100)
-    pub fn from_image(path: &str, spacing: f64) -> Self {
+    pub fn from_image(path: &str, spacing: f64, knl: &KernelType) -> Self {
         let rgba = open(path).unwrap().into_rgba8();
         let (xsize, ysize) = rgba.dimensions();
         let x_half = (xsize as f64) * spacing / 2.;
@@ -89,7 +125,7 @@ impl Boundary {
             .par_bridge()
             .filter(|(_i, p)| {
                 let [r, g, b, a] = p.0;
-                r < 10 && g < 10 && b < 10 && a > 100
+                is_black(r, g, b, a)
             })
             .map(|(i, _p)| {
                 let x = ((i as u32) % xsize) as f64 * spacing;
@@ -97,12 +133,12 @@ impl Boundary {
                 DVec2::new(x - x_half, -(y - y_half))
             })
             .collect();
-        Self::boundary_from_positions(pos)
+        Self::boundary_from_positions(pos, knl)
     }
 
     /// Update the virtual masses of the boundary particles,
     /// which are calculated as a correcting factor for non-uniformly sampled
-    /// boudnaries.
+    /// boundaries.
     ///
     /// These masses are computed as: m_i = \frac{ \rho_0 \gamma_1 }{\sum_{i_b} W_{i, i_{b}}}
     pub fn update_masses(&mut self) {

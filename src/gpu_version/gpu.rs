@@ -36,7 +36,7 @@ pub fn run(run_for_t: Option<f32>) -> bool {
     let k = Kernels::new(&b, &pro_que, pos.len() as u32);
     // finish initializing buffers on gpu side
     b.init_gpu_side(n, &pos, &vel, &bdy, &k, &pro_que);
-    let mut den: Vec<Float> = vec![Float::new((M / (H * H)) as f32); pos.len()];
+    let mut den: Vec<Float> = vec![Float::new((1.0) as f32); pos.len()];
     let mut handles: Vec<Uint2> = (0..pos.len())
         .map(|i| Uint2::new(i as u32, i as u32))
         .collect();

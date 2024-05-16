@@ -33,20 +33,20 @@ pub fn unzip_f64_2(values: &[[f64; 2]]) -> (Vec<f64>, Vec<f64>) {
 }
 
 /// Computes the Hamiltonian of the system
-pub fn hamiltonian(pos: &[DVec2], vel: &[DVec2], mass: f64, min_height: f64) -> f64 {
+pub fn hamiltonian(pos: &[DVec2], vel: &[DVec2], mas: &[f64]) -> f64 {
     let g = -GRAVITY.load(atomic::Ordering::Relaxed);
-    let lowest = mass * g * min_height * pos.len() as f64;
     let ham: f64 = pos
         .par_iter()
         .zip(vel)
-        .map(|(p, v)| {
+        .zip(mas)
+        .map(|((p, v), mass)| {
             // the gravitational potential of the particle
             let pot_grav = mass * g * p.y;
             let pot_kinetic = 0.5 * mass * v.length_squared();
             pot_grav + pot_kinetic
         })
         .sum();
-    (ham - lowest) / lowest.abs()
+    ham
 }
 
 /// Give a random 'DVec2' within a given square range $[-range;range]^2$
@@ -106,4 +106,13 @@ pub fn integrate_squared_error(data: &[[f64; 2]], should_be: f64) -> f64 {
             (b[0] - a[0]) * (err_a + err_b) * 0.5
         })
         .sum()
+}
+
+/// For values of RGBA in bytes, determine if the colour represented is black.
+pub fn is_black(r: u8, g: u8, b: u8, a: u8) -> bool {
+    a > 100 && r < 10 && g < 10 && b < 10
+}
+/// For values of RGBA in bytes, determine if the colour represented is blue.
+pub fn is_blue(r: u8, g: u8, b: u8, a: u8) -> bool {
+    a > 100 && b > (r + 10) && b > (g + 10)
 }

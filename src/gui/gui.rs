@@ -176,29 +176,18 @@ pub fn draw_particles(
 
     // draw the boundary
     if !USE_GPU_BOUNDARY {
+        let hbdy = { *HARD_BOUNDARY.read() };
         graphics.draw_rectangle(
             Rectangle::new(
-                camera_transform(
-                    &[HARD_BOUNDARY[0][0] as f64, HARD_BOUNDARY[0][1] as f64],
-                    &off,
-                    z,
-                    w,
-                    h,
-                ),
-                camera_transform(
-                    &[HARD_BOUNDARY[1][0] as f64, HARD_BOUNDARY[1][0] as f64],
-                    &off,
-                    z,
-                    w,
-                    h,
-                ),
+                camera_transform(&[hbdy[0][0] as f64, hbdy[0][1] as f64], &off, z, w, h),
+                camera_transform(&[hbdy[1][0] as f64, hbdy[1][0] as f64], &off, z, w, h),
             ),
             Color::WHITE,
         );
         graphics.draw_rectangle(
             Rectangle::new(
                 camera_transform(
-                    &(DVec2::new(HARD_BOUNDARY[0][0] as f64, HARD_BOUNDARY[0][1] as f64)
+                    &(DVec2::new(hbdy[0][0] as f64, hbdy[0][1] as f64)
                         + DVec2::ONE * BOUNDARY_THCKNESS)
                         .to_array(),
                     &off,
@@ -207,7 +196,7 @@ pub fn draw_particles(
                     h,
                 ),
                 camera_transform(
-                    &(DVec2::new(HARD_BOUNDARY[1][0] as f64, HARD_BOUNDARY[1][1] as f64)
+                    &(DVec2::new(hbdy[1][0] as f64, hbdy[1][1] as f64)
                         - DVec2::ONE * BOUNDARY_THCKNESS)
                         .to_array(),
                     &off,
@@ -482,8 +471,6 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         .selected_text(format!("{:?}", solver))
                         .show_ui(ui, |ui: &mut Ui| {
                             ui.selectable_value(&mut solver, Solver::SESPH, "SESPH");
-                            ui.selectable_value(&mut solver, Solver::SSESPH, "SSESPH");
-                            ui.selectable_value(&mut solver, Solver::ISESPH, "ISESPH");
                         });
                     ui.horizontal(|ui| {
                         ui.add(

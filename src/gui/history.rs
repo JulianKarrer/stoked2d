@@ -7,7 +7,7 @@ use crate::{
     datastructure::Grid,
     gpu_version::gpu::len_float2,
     utils::{average_val, hamiltonian},
-    BOUNDARY, H, M,
+    RHO_ZERO,
 };
 
 /// Represents the features of the simulation that are stored for visualization at any given time step
@@ -32,7 +32,7 @@ impl Default for History {
     fn default() -> Self {
         Self {
             steps: vec![HistoryTimestep::default()],
-            plot_density: vec![[0.0, M / (H * H)]],
+            plot_density: vec![[0.0, RHO_ZERO.load(atomic::Ordering::Relaxed)]],
             plot_hamiltonian: vec![],
             bdy: vec![],
         }
@@ -74,10 +74,8 @@ impl History {
         let densities = state.den.clone();
         let average_density = average_val(&densities);
         self.plot_density.push([current_t, average_density]);
-        self.plot_hamiltonian.push([
-            current_t,
-            hamiltonian(&state.pos, &state.vel, M, BOUNDARY[0].y),
-        ]);
+        self.plot_hamiltonian
+            .push([current_t, hamiltonian(&state.pos, &state.vel, &state.mas)]);
         self.steps.push(HistoryTimestep {
             pos: state.pos.par_iter().map(|p| p.to_array()).collect(),
             current_t,
@@ -91,10 +89,8 @@ impl History {
         let densities = state.den.clone();
         let average_density = average_val(&densities);
         self.plot_density.push([current_t, average_density]);
-        self.plot_hamiltonian.push([
-            current_t,
-            hamiltonian(&state.pos, &state.vel, M, BOUNDARY[0].y),
-        ]);
+        self.plot_hamiltonian
+            .push([current_t, hamiltonian(&state.pos, &state.vel, &state.mas)]);
     }
 }
 
