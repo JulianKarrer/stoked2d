@@ -1,13 +1,9 @@
-use glam::DVec2;
 use ocl::prm::{Float, Float2};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
-    attributes::Attributes,
-    datastructure::Grid,
-    gpu_version::gpu::len_float2,
-    utils::{average_val, hamiltonian},
-    RHO_ZERO,
+    attributes::Attributes, boundary::Boundary, datastructure::Grid, gpu_version::gpu::len_float2,
+    utils::average_val, COMPUTE_HAMILTONIAN, RHO_ZERO,
 };
 
 /// Represents the features of the simulation that are stored for visualization at any given time step
@@ -58,39 +54,41 @@ impl History {
         &mut self,
         state: &Attributes,
         grid: &Grid,
-        bdy: &[DVec2],
+        bdy: &Boundary,
         current_t: f64,
     ) {
         self.reset();
-        self.bdy = bdy.par_iter().map(|p| p.to_array()).collect();
-        self.add(state, grid, current_t);
+        self.bdy = bdy.pos.par_iter().map(|p| p.to_array()).collect();
+        self.add(state, grid, current_t, bdy);
     }
 
-    pub fn add_step(&mut self, state: &Attributes, grid: &Grid, current_t: f64) {
-        self.add(state, grid, current_t)
+    pub fn add_step(
+        &mut self,
+        state: &Attributes,
+        grid: &Grid,
+        current_t: f64,
+        boundary: &Boundary,
+    ) {
+        self.add(state, grid, current_t, boundary)
     }
 
-    fn add(&mut self, state: &Attributes, grid: &Grid, current_t: f64) {
-        let densities = state.den.clone();
-        let average_density = average_val(&densities);
-        self.plot_density.push([current_t, average_density]);
-        self.plot_hamiltonian
-            .push([current_t, hamiltonian(&state.pos, &state.vel, &state.mas)]);
+    fn add(&mut self, state: &Attributes, grid: &Grid, current_t: f64, bdy: &Boundary) {
+        self.add_plot_data_only(state, current_t, bdy);
         self.steps.push(HistoryTimestep {
             pos: state.pos.par_iter().map(|p| p.to_array()).collect(),
             current_t,
-            densities,
+            densities: state.den.clone(),
             velocities: state.vel.par_iter().map(|v| v.length()).collect(),
             grid_handle_index: grid.handles.par_iter().map(|x| x.index as u32).collect(),
         })
     }
 
-    pub fn add_plot_data_only(&mut self, state: &Attributes, current_t: f64) {
-        let densities = state.den.clone();
-        let average_density = average_val(&densities);
-        self.plot_density.push([current_t, average_density]);
-        self.plot_hamiltonian
-            .push([current_t, hamiltonian(&state.pos, &state.vel, &state.mas)]);
+    pub fn add_plot_data_only(&mut self, state: &Attributes, current_t: f64, bdy: &Boundary) {
+        self.plot_density.push([current_t, average_val(&state.den)]);
+        if COMPUTE_HAMILTONIAN.load(atomic::Ordering::Relaxed) {
+            self.plot_hamiltonian
+                .push([current_t, state.compute_hamiltonian(bdy)]);
+        }
     }
 }
 

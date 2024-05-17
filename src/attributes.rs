@@ -1,8 +1,9 @@
 use crate::{
     boundary::Boundary,
     datastructure::Grid,
+    sph::KernelType,
     utils::{is_black, is_blue, linspace},
-    FLUID, H, INITIAL_JITTER, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS, V_ZERO,
+    FLUID, GAMMA_2, GRAVITY, H, INITIAL_JITTER, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS, V_ZERO,
 };
 use glam::DVec2;
 use image::open;
@@ -182,5 +183,70 @@ impl Attributes {
         self.pos = order.par_iter().map(|i| self.pos[*i]).collect();
         self.vel = order.par_iter().map(|i| self.vel[*i]).collect();
         self.mas = order.par_iter().map(|i| self.mas[*i]).collect();
+    }
+
+    // HAMIULTONIAN COMPUTATION ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    pub fn compute_hamiltonian(&self, boundary: &Boundary) -> f64 {
+        (self.compute_pressure_energy(boundary, &SPH_KERNELS.read().density)
+            + self.compute_kinetic_energy()
+            + self.compute_gravitational_potential_energy())
+            / self.pos.len() as f64
+    }
+
+    /// Compute the total potential energy of the system stored in deformations that cause
+    /// pressure forces. This function is the same as `add_pressure_accelerations`, except
+    /// it uses a positive sum over kernels instead of the negative kernel gradient.
+    pub fn compute_pressure_energy(&self, boundary: &Boundary, knl: &KernelType) -> f64 {
+        let rho_0 = RHO_ZERO.load(Relaxed);
+        let one_over_rho_0_squared = 1.0 / (rho_0 * rho_0);
+        let gamma_2 = GAMMA_2.load(Relaxed);
+        self.pos
+            .par_iter()
+            .enumerate()
+            .zip(&self.prs)
+            .zip(&self.den)
+            .map(|(((i, x_i), p_i), rho_i)| {
+                let p_i_over_rho_i_squared = p_i / (rho_i * rho_i);
+                self.mas[i]
+                    * self.mas[i]
+                    * self
+                        .grid
+                        .query_index(i)
+                        .iter()
+                        .map(|j| {
+                            (p_i_over_rho_i_squared + self.prs[*j] / (self.den[*j] * self.den[*j]))
+                                * knl.w(x_i, &self.pos[*j])
+                        })
+                        .sum::<f64>()
+                    + gamma_2
+                        * (p_i_over_rho_i_squared + p_i * one_over_rho_0_squared)
+                        * boundary
+                            .grid
+                            .query_radius(x_i, &boundary.pos, KERNEL_SUPPORT)
+                            .iter()
+                            .map(|j| knl.w(x_i, &boundary.pos[*j]) * boundary.m[*j])
+                            .sum::<f64>()
+            })
+            .sum::<f64>()
+    }
+
+    // Compute the total kinteic energy of the system.
+    fn compute_kinetic_energy(&self) -> f64 {
+        self.vel
+            .par_iter()
+            .zip(&self.mas)
+            .map(|(v_i, m_i)| 0.5 * m_i * v_i.length_squared())
+            .sum()
+    }
+
+    // Compute the total kinteic energy of the system.
+    fn compute_gravitational_potential_energy(&self) -> f64 {
+        let g = GRAVITY.load(Relaxed).abs();
+        self.pos
+            .par_iter()
+            .zip(&self.mas)
+            .map(|(x_i, m_i)| m_i * g * (x_i.y))
+            .sum()
     }
 }

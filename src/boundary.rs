@@ -79,7 +79,7 @@ impl Boundary {
         // adjust zoom to updated boundary
         ZOOM.store(
             (WINDOW_SIZE[0].load(Relaxed) as f32).min(WINDOW_SIZE[1].load(Relaxed) as f32)
-                / (hbdy[1][0] - hbdy[0][0]).min(hbdy[1][1] - hbdy[0][1])
+                / (hbdy[1][0] - hbdy[0][0]).max(hbdy[1][1] - hbdy[0][1])
                 * 0.9,
             Relaxed,
         );

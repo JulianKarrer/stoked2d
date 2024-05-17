@@ -110,6 +110,8 @@ static MAX_RHO_DEVIATION: AtomicF64 = AtomicF64::new(0.05);
 /// The type of equation relating density to pressure (stress to strain)
 static PRESSURE_EQ: AtomicPressureEquation =
     AtomicPressureEquation::new(simulation::PressureEquation::ClampedRelative);
+// whether to compute the hamiltonian of the system or not
+static COMPUTE_HAMILTONIAN: AtomicBool = AtomicBool::new(false);
 
 // constants that are consequences of other constants or the dimensionality
 const DIMENSIONS: f64 = 2.;

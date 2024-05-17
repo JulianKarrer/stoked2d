@@ -14,7 +14,7 @@ use self::{
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub fn run(run_for_t: Option<f64>) -> bool {
-    let name = "setting2.png";
+    let name = "setting3.png";
     let boundary = Boundary::from_image(name, 0.01, &{ *SPH_KERNELS.read() }.density);
     let mut state = Attributes::from_image(name, 0.01, &boundary);
 
@@ -33,7 +33,7 @@ pub fn run(run_for_t: Option<f64>) -> bool {
     {
         HISTORY
             .write()
-            .reset_and_add(&state, &state.grid, &boundary.pos, current_t);
+            .reset_and_add(&state, &state.grid, &boundary, current_t);
     }
     let mut last_update_time = timestamp();
     let mut last_gui_update_t = 0.0f64;
@@ -63,11 +63,15 @@ pub fn run(run_for_t: Option<f64>) -> bool {
         if current_t - last_gui_update_t > FRAME_TIME.into() {
             last_gui_update_t = current_t;
             {
-                HISTORY.write().add_step(&state, &state.grid, current_t);
+                HISTORY
+                    .write()
+                    .add_step(&state, &state.grid, current_t, &boundary);
             }
         } else {
             {
-                HISTORY.write().add_plot_data_only(&state, current_t);
+                HISTORY
+                    .write()
+                    .add_plot_data_only(&state, current_t, &boundary);
             }
         }
         // if only a specific time frame was requested, stop the simulation

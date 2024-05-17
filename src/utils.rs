@@ -2,9 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use glam::DVec2;
 use rand::{thread_rng, Rng};
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-
-use crate::GRAVITY;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 /// Efficiently calculates the next multiple of 'multiple_of' which is greater or
 /// equal to 'n'. Equivalent to the rounded up result of division.
@@ -30,23 +28,6 @@ pub fn get_timestamp() -> u64 {
 /// Unzips a single vector of arrays of size two of floats into two vectors of floats.
 pub fn unzip_f64_2(values: &[[f64; 2]]) -> (Vec<f64>, Vec<f64>) {
     values.par_iter().map(|v| (v[0], v[1])).unzip()
-}
-
-/// Computes the Hamiltonian of the system
-pub fn hamiltonian(pos: &[DVec2], vel: &[DVec2], mas: &[f64]) -> f64 {
-    let g = -GRAVITY.load(atomic::Ordering::Relaxed);
-    let ham: f64 = pos
-        .par_iter()
-        .zip(vel)
-        .zip(mas)
-        .map(|((p, v), mass)| {
-            // the gravitational potential of the particle
-            let pot_grav = mass * g * p.y;
-            let pot_kinetic = 0.5 * mass * v.length_squared();
-            pot_grav + pot_kinetic
-        })
-        .sum();
-    ham
 }
 
 /// Give a random 'DVec2' within a given square range $[-range;range]^2$
