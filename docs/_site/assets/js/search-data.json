@@ -138,5 +138,19 @@
     "url": "/stoked2d/week2/",
     
     "relUrl": "/week2/"
+  },"20": {
+    "doc": "Cohesion, Adhesion & Surface Tension",
+    "title": "Adhesion through viscosity",
+    "content": "(\\(j\\) are fluid neighbours, \\(k\\) are boundary neighbours) . | previously used viscosity: . | \\[a_{i,vis} = 2\\nu \\sum_{j} \\frac{m_j}{\\rho_{j}} \\frac{\\vec{v}_{ij} \\cdot \\vec{x}_{ij}} \\nabla W_{ij} {\\lVert \\vec{x}_{ij}\\rVert^2 + 0.01h^2}\\] | . | correct for dimensionality: factor \\(2(\\text{dimensions}+2)\\) instead of \\(2\\) ? | introduce \\(\\nu_2\\) . | projected on boundary surface \\(\\hat{\\vec{n}}\\Longrightarrow\\) adhesion without tangential friction | \\[\\hat{\\vec{n}} = \\begin{cases} \\frac{\\sum_k \\nabla W_{ik}}{\\lVert\\sum_k \\nabla W_{ik}\\rVert} &amp; \\lVert\\sum_k \\nabla W_{ik}\\rVert&gt;0\\\\ \\vec{0} &amp; \\text{otherwise}\\\\ \\end{cases}\\] | \\[a_{i,vis} = 2(\\text{dimensions}+2)\\left( \\nu_1 \\sum_{j} \\frac{m_j}{\\rho_{j}} \\frac{\\vec{v}_{ij} \\cdot \\vec{x}_{ij}} {\\lVert \\vec{x}_{ij}\\rVert^2 + 0.01h^2} \\nabla W_{ij} + \\left(\\nu_2 \\sum_{k} \\frac{m_k}{\\rho_{0}} \\frac{\\vec{v}_i \\cdot \\vec{x}_{ik}} {\\lVert \\vec{x}_{ik}\\rVert^2 + 0.01h^2} \\nabla W_{ik}\\right) \\cdot \\hat{\\vec{n}} \\odot \\hat{\\vec{n}} \\right)\\] | . | no adhesion, \\(\\nu_1 = 0.002, \\nu_2=0\\): . | . | adhesion, \\(\\nu_1 = 0.001, \\nu_2=0.020\\) lower viscosity possible without instability!: . | . | . ",
+    "url": "/stoked2d/week3/#adhesion-through-viscosity",
+    
+    "relUrl": "/week3/#adhesion-through-viscosity"
+  },"21": {
+    "doc": "Cohesion, Adhesion & Surface Tension",
+    "title": "Cohesion, Adhesion & Surface Tension",
+    "content": " ",
+    "url": "/stoked2d/week3/",
+    
+    "relUrl": "/week3/"
   }
 }

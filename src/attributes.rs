@@ -2,7 +2,7 @@ use crate::{
     boundary::Boundary,
     datastructure::Grid,
     utils::{is_black, is_blue, linspace},
-    FLUID, H, INITIAL_JITTER, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS,
+    FLUID, H, INITIAL_JITTER, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS, V_ZERO,
 };
 use glam::DVec2;
 use image::open;
@@ -39,24 +39,28 @@ impl Attributes {
         // define the masses of each particle such that rest density is
         // achieved in the initial configuration
         let knl = { SPH_KERNELS.read().density };
-        let mas: Vec<f64> = pos
+        let m_0 = rho_0 * V_ZERO;
+        let mas = pos
             .par_iter()
             .enumerate()
             .map(|(i, x_i)| {
-                let one_over_v: f64 = grid
-                    .query_index(i)
-                    .iter()
-                    .map(|j_f| knl.w(x_i, &pos[*j_f]))
-                    .sum::<f64>()
-                    + bdy
-                        .grid
-                        .query_radius(x_i, &bdy.pos, KERNEL_SUPPORT)
+                // https://cg.informatik.uni-freiburg.de/publications/2018_TOG_pressureBoundaries.pdf
+                // see Equation (13)
+                // actual volume of a particle is determined and mass set to enforce rho_0
+                let v_f = (m_0 / rho_0)
+                    / (grid
+                        .query_index(i)
                         .iter()
-                        .map(|j_b| knl.w(x_i, &bdy.pos[*j_b]) * (bdy.m[*j_b] / (H * H)))
-                        .sum::<f64>();
-                assert!(one_over_v.is_normal());
-                let v = 1. / one_over_v;
-                rho_0 * v
+                        .map(|j_f| knl.w(x_i, &pos[*j_f]))
+                        .sum::<f64>()
+                        * (m_0 / rho_0)
+                        + bdy
+                            .grid
+                            .query_radius(x_i, &bdy.pos, KERNEL_SUPPORT)
+                            .iter()
+                            .map(|j_b| knl.w(x_i, &bdy.pos[*j_b]) * (bdy.m[*j_b] / rho_0))
+                            .sum::<f64>());
+                v_f * rho_0
             })
             .collect();
         let mut res = Self {

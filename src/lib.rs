@@ -94,9 +94,10 @@ const BOUNDARY_LAYER_COUNT: usize = 1;
 const USE_GPU_BOUNDARY: bool = true;
 
 /// Viscosity constant Nu
-static NU: AtomicF64 = AtomicF64::new(0.015);
+static NU: AtomicF64 = AtomicF64::new(0.001);
+static NU_2: AtomicF64 = AtomicF64::new(0.020);
 /// Stiffness constant determining the incompressibility in the state equation
-static K: AtomicF64 = AtomicF64::new(1250.);
+static K: AtomicF64 = AtomicF64::new(1000.);
 
 /// The factor of the maximum size of a time step taken each iteration
 static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
@@ -109,10 +110,11 @@ static MAX_RHO_DEVIATION: AtomicF64 = AtomicF64::new(0.05);
 /// The type of equation relating density to pressure (stress to strain)
 static PRESSURE_EQ: AtomicPressureEquation =
     AtomicPressureEquation::new(simulation::PressureEquation::ClampedRelative);
-/// Mass of a particle
-// const M: f64 = H * H;
-// -> Consequence of kernel support radius 2H:
-pub const KERNEL_SUPPORT: f64 = 2.0 * H;
+
+// constants that are consequences of other constants or the dimensionality
+const DIMENSIONS: f64 = 2.;
+const V_ZERO: f64 = H * H; // theoretical rest volume at rho_0 for 2D
+pub const KERNEL_SUPPORT: f64 = 2.0 * H; // -> Consequence of kernel support radius 2H:
 
 // datastructure settings
 static GRID_CURVE: AtomicGridCurve = AtomicGridCurve::new(GridCurve::XYZ);
@@ -124,7 +126,7 @@ const WORKGROUP_SIZE: usize = 256;
 // video settings
 const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
-const VIDEO_FPS: usize = 30;
+const VIDEO_FPS: usize = 155;
 const FRAME_TIME: f32 = 1. / (VIDEO_FPS as f32);
 // const FRAME_TIME: f32 = 0.0;
 

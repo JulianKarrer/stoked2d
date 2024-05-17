@@ -30,7 +30,7 @@ const FONT_HEADING_SIZE: f32 = 15.0;
 static ICON_SIZE: Vec2 = Vec2::new(24.0, 24.0);
 
 // GUI RELATED CONSTANTS AND ATOMICS
-static ZOOM: AtomicF32 = AtomicF32::new(80.0);
+pub static ZOOM: AtomicF32 = AtomicF32::new(80.0);
 const ZOOM_SPEED: f32 = 1.8;
 static DRAGGING: AtomicBool = AtomicBool::new(false);
 pub const BOUNDARY_THCKNESS: f64 = 0.05;
@@ -38,6 +38,7 @@ static GUI_FPS: AtomicF64 = AtomicF64::new(60.0);
 pub static VISUALIZED_FEATURE: AtomicVisualizedFeature =
     AtomicVisualizedFeature::new(VisualizedFeature::Velocity);
 pub static COLOUR_SCHEME: AtomicColourScheme = AtomicColourScheme::new(ColourScheme::Spectral);
+static VIDEO_EXPORT_FPS: AtomicF64 = AtomicF64::new(30.0);
 
 lazy_static! {
   static ref DRAG_OFFSET:Arc<RwLock<speedy2d::dimen::Vec2>> = Arc::new(RwLock::new(speedy2d::dimen::Vec2::new(0.0, 0.0)));
@@ -169,6 +170,7 @@ pub fn draw_particles(
 ) {
     // clear screen
     graphics.clear_screen(Color::BLACK);
+    let hbdy = { *HARD_BOUNDARY.read() };
 
     let (w, h) = size;
     let z = ZOOM.load(Relaxed);
@@ -176,7 +178,6 @@ pub fn draw_particles(
 
     // draw the boundary
     if !USE_GPU_BOUNDARY {
-        let hbdy = { *HARD_BOUNDARY.read() };
         graphics.draw_rectangle(
             Rectangle::new(
                 camera_transform(&[hbdy[0][0] as f64, hbdy[0][1] as f64], &off, z, w, h),
@@ -250,6 +251,15 @@ pub fn draw_particles(
             Color::from_rgb(colour.r as f32, colour.g as f32, colour.b as f32),
         )
     });
+}
+
+fn get_next_timestep(current_t: f64, hist: &History) -> &HistoryTimestep {
+    let res = hist.steps.iter().find(|hts| hts.current_t >= current_t);
+    if let Some(hts) = res {
+        hts
+    } else {
+        hist.steps.last().unwrap()
+    }
 }
 
 pub struct StokedWindowHandler;
@@ -338,6 +348,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         let mut gravity = GRAVITY.load(Relaxed);
         let mut k: f64 = K.load(Relaxed);
         let mut nu: f64 = NU.load(Relaxed);
+        let mut nu2: f64 = NU_2.load(Relaxed);
         let mut rho_0: f64 = RHO_ZERO.load(Relaxed);
         let mut pressure_eq: PressureEquation = PRESSURE_EQ.load(Relaxed);
         let mut solver: Solver = SOLVER.load(Relaxed);
@@ -351,6 +362,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         let mut colours: ColourScheme = COLOUR_SCHEME.load(Relaxed);
         let mut gamma_1: f64 = GAMMA_1.load(Relaxed);
         let mut gamma_2: f64 = GAMMA_2.load(Relaxed);
+        let mut video_export_fps: f64 = VIDEO_EXPORT_FPS.load(Relaxed);
         // create fonts
         let header = FontId::proportional(FONT_HEADING_SIZE);
         // SETTINGS WINDOW
@@ -406,11 +418,20 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::DragValue::new(&mut nu)
-                                .speed(0.001)
-                                .max_decimals(3)
+                                .speed(0.0001)
+                                .max_decimals(4)
                                 .clamp_range(0.0..=f64::MAX),
                         );
                         ui.label("Viscosity ν");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut nu2)
+                                .speed(0.0001)
+                                .max_decimals(4)
+                                .clamp_range(0.0..=f64::MAX),
+                        );
+                        ui.label("Boundary Viscosity ν₂");
                     });
                     ui.horizontal(|ui| {
                         ui.add(
@@ -526,7 +547,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
 
                     // COLLAPSIBLE PLOTS
                     CollapsingHeader::new("Density Plot")
-                        .default_open(true)
+                        .default_open(false)
                         .show(ui, |ui| {
                             let avg_den_plot: PlotPoints =
                                 { (*HISTORY).read().plot_density.clone().into() };
@@ -535,7 +556,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                                 .show(ui, |plot_ui| plot_ui.line(Line::new(avg_den_plot)));
                         });
                     CollapsingHeader::new("Hamiltonian Plot")
-                        .default_open(true)
+                        .default_open(false)
                         .show(ui, |ui| {
                             let ham_plot: PlotPoints =
                                 { (*HISTORY).read().plot_hamiltonian.clone().into() };
@@ -567,16 +588,35 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         }
                         vid.finish()
                     }
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut video_export_fps)
+                                .speed(1.0)
+                                .clamp_range(0.1..=1000.),
+                        );
+                        ui.label("Image Sequence FPS");
+                    });
                     if ui.button("Save Image Sequence").clicked() {
                         let hist = { (*HISTORY).read() };
                         let x = WINDOW_SIZE[0].load(Relaxed) as usize;
                         let y = WINDOW_SIZE[1].load(Relaxed) as usize;
                         println!("rendering raw in {}x{}", x, y);
                         let timestamp = get_timestamp();
-                        for (i, time_step) in hist.steps.iter().enumerate() {
+                        let mut current_video_t = 0.;
+                        let max_video_t = hist.steps.last().unwrap().current_t;
+                        let mut frame_number = 0;
+                        while current_video_t <= max_video_t {
+                            let time_step = get_next_timestep(current_video_t, &hist);
                             draw_particles(graphics, &hist.bdy, time_step, (x as f32, y as f32));
                             let cap = graphics.capture(speedy2d::image::ImageDataType::RGB);
-                            VideoHandler::add_raw_frame(cap.data(), i, timestamp, (x, y));
+                            VideoHandler::add_raw_frame(
+                                cap.data(),
+                                frame_number,
+                                timestamp,
+                                (x, y),
+                            );
+                            frame_number += 1;
+                            current_video_t += 1. / video_export_fps;
                         }
                     }
                 })
@@ -701,6 +741,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         GRAVITY.store(gravity, Relaxed);
         K.store(k, Relaxed);
         NU.store(nu, Relaxed);
+        NU_2.store(nu2, Relaxed);
         RHO_ZERO.store(rho_0, Relaxed);
         PRESSURE_EQ.store(pressure_eq, Relaxed);
         SOLVER.store(solver, Relaxed);
@@ -716,6 +757,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         COLOUR_SCHEME.store(colours, Relaxed);
         GAMMA_1.store(gamma_1, Relaxed);
         GAMMA_2.store(gamma_2, Relaxed);
+        VIDEO_EXPORT_FPS.store(video_export_fps, Relaxed);
 
         // draw the new frame
         helper.request_redraw();
@@ -727,7 +769,6 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         size_pixels: speedy2d::dimen::UVec2,
         _egui_ctx: &egui::Context,
     ) {
-        println!("resized to {} {}", size_pixels.x, size_pixels.y);
         WINDOW_SIZE[0].store(size_pixels.x, Relaxed);
         WINDOW_SIZE[1].store(size_pixels.y, Relaxed);
     }

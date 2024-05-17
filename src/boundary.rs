@@ -1,6 +1,6 @@
 use crate::{
-    datastructure::Grid, sph::KernelType, utils::is_black, BOUNDARY, GAMMA_1, GAMMA_2, H,
-    HARD_BOUNDARY, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS,
+    datastructure::Grid, gui::gui::ZOOM, sph::KernelType, utils::is_black, BOUNDARY, GAMMA_1,
+    GAMMA_2, H, HARD_BOUNDARY, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS, WINDOW_SIZE,
 };
 use glam::DVec2;
 use image::open;
@@ -69,13 +69,20 @@ impl Boundary {
             .min_by(|a, b| b.y.total_cmp(&a.y))
             .unwrap()
             .y;
+        let hbdy = [
+            Float2::new(xmin as f32, ymin as f32),
+            Float2::new(xmax as f32, ymax as f32),
+        ];
         {
-            *HARD_BOUNDARY.write() = [
-                Float2::new(xmin as f32, ymin as f32),
-                Float2::new(xmax as f32, ymax as f32),
-            ];
+            *HARD_BOUNDARY.write() = hbdy;
         }
-        println!("xmin{} xmax{} ymin{} ymax{}", xmin, xmax, ymin, ymax);
+        // adjust zoom to updated boundary
+        ZOOM.store(
+            (WINDOW_SIZE[0].load(Relaxed) as f32).min(WINDOW_SIZE[1].load(Relaxed) as f32)
+                / (hbdy[1][0] - hbdy[0][0]).min(hbdy[1][1] - hbdy[0][1])
+                * 0.9,
+            Relaxed,
+        );
         // return the result
         res
     }

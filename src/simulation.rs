@@ -14,7 +14,7 @@ use self::{
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 pub fn run(run_for_t: Option<f64>) -> bool {
-    let name = "setting4.png";
+    let name = "setting2.png";
     let boundary = Boundary::from_image(name, 0.01, &{ *SPH_KERNELS.read() }.density);
     let mut state = Attributes::from_image(name, 0.01, &boundary);
 
@@ -96,13 +96,14 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
     );
     update_pressures(&state.den, &mut state.prs);
     // apply external forces
-    apply_gravity_and_viscosity(
+    apply_non_pressure_forces(
         &state.pos,
         &state.vel,
         &mut state.acc,
         &state.den,
         &state.mas,
         &state.grid,
+        boundary,
         &knls.viscosity,
     );
     // apply pressure forces
@@ -156,41 +157,63 @@ pub fn update_fps(previous_timestamp: &mut u128) {
     *previous_timestamp = now;
 }
 
-/// Apply external forces such as gravity and viscosity, overwriting the accelerations vec
-fn apply_gravity_and_viscosity(
+/// Apply non-pressure forces such as gravity and viscosity, overwriting the accelerations
+fn apply_non_pressure_forces(
     pos: &[DVec2],
     vel: &[DVec2],
     acc: &mut [DVec2],
     den: &[f64],
     mas: &[f64],
     grid: &Grid,
+    boundary: &Boundary,
     knl: &KernelType,
 ) {
     // account for gravity
     let acc_g = DVec2::Y * GRAVITY.load(Relaxed);
     // calculate viscosity
     let nu = NU.load(Relaxed);
+    let nu2 = NU_2.load(Relaxed);
+    let rho_0 = RHO_ZERO.load(Relaxed);
     acc.par_iter_mut()
         .enumerate()
         .zip(pos)
         .zip(vel)
-        .for_each(|(((i, a), p), v)| {
+        .for_each(|(((i, a_i), x_i), v_i)| {
+            // fluid viscosity
             let vis: DVec2 = nu
-                * 2.0
+                * 2.*(DIMENSIONS + 2.) // 2*(dimensions + 2)
                 * grid
                     .query_index(i)
                     .iter()
                     .map(|j| {
-                        let x_i_j = *p - pos[*j];
-                        let v_i_j = *v - vel[*j];
+                        let x_i_j = *x_i - pos[*j];
+                        let v_i_j = *v_i - vel[*j];
                         mas[*j] / den[*j] * (v_i_j).dot(x_i_j)
                             / (x_i_j.length_squared() + 0.01 * H * H)
-                            * knl.dw(p, &pos[*j])
-                    })
-                    .reduce(|a, b| a + b)
-                    .unwrap_or(DVec2::ZERO);
+                            * knl.dw(x_i, &pos[*j])
+                    }).sum::<DVec2>();
             assert!(vis.is_finite());
-            *a = acc_g + vis
+            // boundary viscosity
+            let bdy_neighbours = boundary
+                .grid
+                .query_radius(x_i, &boundary.pos, KERNEL_SUPPORT);
+            let bdy_normal = bdy_neighbours
+                .iter()
+                .map(|j| knl.dw(x_i, &boundary.pos[*j]))
+                .sum::<DVec2>()
+                .normalize_or_zero();
+            let vis_bdy: DVec2 = nu2
+                * 2.*(DIMENSIONS + 2.) // 2*(dimensions + 2)
+                * bdy_neighbours.iter()
+                    .map(|j| {
+                        let x_i_j = *x_i - boundary.pos[*j];
+                        let v_i_j = *v_i; // v at boundary is zero
+                        boundary.m[*j] / rho_0 * (v_i_j).dot(x_i_j)
+                            / (x_i_j.length_squared() + 0.01 * H * H)
+                            * knl.dw(x_i, &boundary.pos[*j])
+                    }).sum::<DVec2>();
+            assert!(vis_bdy.is_finite());
+            *a_i = acc_g + vis + vis_bdy.dot(bdy_normal) * bdy_normal
         });
 }
 
