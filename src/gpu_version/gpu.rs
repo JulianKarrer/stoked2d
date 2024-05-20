@@ -58,7 +58,8 @@ pub fn run(run_for_t: Option<f32>) -> bool {
     // let mut vid = VideoHandler::default();
     let progressbar = if run_for_t.is_some() {
         Some({
-            let progress = ProgressBar::new((run_for_t.unwrap() / FRAME_TIME).ceil() as u64);
+            let progress =
+                ProgressBar::new((run_for_t.unwrap() / HISTORY_FRAME_TIME).ceil() as u64);
             progress.set_message(format!("{} ITERS/S", SIM_FPS.load(Relaxed)));
             progress.set_style(
       ProgressStyle::with_template("{msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} (ETA {eta})").unwrap()
@@ -127,7 +128,7 @@ pub fn run(run_for_t: Option<f32>) -> bool {
         update_fps(&mut last_update_time);
         // every FRAME_TIME second, update GUI, render frame for video and update progress bar
         b.current_t.read(&mut current_t).enq().unwrap();
-        if current_t[0][0] - last_gui_update_t > FRAME_TIME {
+        if current_t[0][0] - last_gui_update_t > HISTORY_FRAME_TIME {
             last_gui_update_t = current_t[0][0];
             // for video
             unsafe { k.render.enq().unwrap() }

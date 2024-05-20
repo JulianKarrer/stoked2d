@@ -1,0 +1,76 @@
+<div>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.12.1.min.js"></script>
+  <div id="plotly-html-element-stab-int" class="plotly-graph-div" style="height:100%; width:100%;aspect-ratio: 1/1;">
+  </div>
+
+  <script type="module">
+    const graph_div = document.getElementById("plotly-html-element-stab-int");
+    await Plotly.newPlot(graph_div, {
+      "data": [
+        {
+          "type": "contour",
+          "name": "Time Integral of Kinetic Energy",
+          "x": [
+            750.0,
+            937.5,
+            1125.0,
+            1312.5,
+            1500.0
+          ],
+          "y": [
+            0.0005,
+            0.000875,
+            0.00125,
+            0.0016250000000000001,
+            0.002
+          ],
+          "z": [
+            [
+              0.017283125378997857,
+              0.026858357546267714,
+              0.029898577198510624,
+              0.03195733606271947,
+              0.03613888728777887
+            ],
+            [
+              0.007951993613535047,
+              0.008791651852825709,
+              0.010051065109596023,
+              0.010666305518412,
+              0.01138025727779011
+            ],
+            [
+              0.004979456515810129,
+              0.00546060454632397,
+              0.006108269711432797,
+              0.006419717899509854,
+              0.007631307258589748
+            ],
+            [
+              0.0037990112971512473,
+              0.004257869623846344,
+              0.004696930942910675,
+              0.005249177934276491,
+              0.005189979403931757
+            ],
+            [
+              0.0024648518608426538,
+              0.003279868274723171,
+              0.003097085284250453,
+              0.003643114313189888,
+              0.004078941395303619
+            ]
+          ]
+        }
+      ],
+      "layout": {
+        "dragmode": "pan"
+      },
+      "config": {
+        "scrollZoom": true,
+        "responsive": true
+      }
+    });
+  </script>
+</div>

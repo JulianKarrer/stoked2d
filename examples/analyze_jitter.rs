@@ -13,7 +13,7 @@ fn main() {
         .map(|x| {
             println!("simulating jitter: {}*H", (*x));
             INITIAL_JITTER.store((*x) * H, atomic::Ordering::SeqCst);
-            run(Some(10.));
+            run(Some(10.), "setting_column_small.png");
             let abs_err = integrate_abs_error(&HISTORY.read().plot_density, 1.0);
             let sqr_err = integrate_squared_error(&HISTORY.read().plot_density, 1.0);
             println!("error abs: {}, error squared: {}", abs_err, sqr_err);

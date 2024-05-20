@@ -43,3 +43,4 @@ nav_order: 2
   - <video style="width:100%;" loop muted autoplay controls>
       <source src="{{ '/assets/week3/visc_adhesion.mp4' | relative_url }}" type="video/mp4">
     </video>
+

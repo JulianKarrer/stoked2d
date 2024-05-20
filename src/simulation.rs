@@ -13,10 +13,9 @@ use self::{
 
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub fn run(run_for_t: Option<f64>) -> bool {
-    let name = "setting3.png";
-    let boundary = Boundary::from_image(name, 0.01, &{ *SPH_KERNELS.read() }.density);
-    let mut state = Attributes::from_image(name, 0.01, &boundary);
+pub fn run(run_for_t: Option<f64>, path: &str) -> bool {
+    let boundary = Boundary::from_image(path, 0.01, &{ *SPH_KERNELS.read() }.density);
+    let mut state = Attributes::from_image(path, 0.01, &boundary);
 
     // state.resort(&grid);
     let mut current_t = 0.0;
@@ -60,7 +59,7 @@ pub fn run(run_for_t: Option<f64>) -> bool {
 
         // write back the positions to the global buffer for visualization and update the FPS count
         update_fps(&mut last_update_time);
-        if current_t - last_gui_update_t > FRAME_TIME.into() {
+        if current_t - last_gui_update_t > HISTORY_FRAME_TIME.into() {
             last_gui_update_t = current_t;
             {
                 HISTORY
@@ -134,15 +133,20 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
 ///
 /// This correpsponds to the Courant-Friedrichs-Lewy condition
 fn update_dt(vel: &[DVec2], current_t: &mut f64) -> f64 {
-    let v_max = vel
-        .par_iter()
-        .map(|v| v.length())
-        .reduce_with(|a, b| a.max(b))
-        .unwrap();
-    let mut dt = (LAMBDA.load(Relaxed) * H / v_max).min(MAX_DT.load(Relaxed));
-    if v_max < VELOCITY_EPSILON || !dt.is_normal() {
-        dt = INITIAL_DT.load(Relaxed)
-    }
+    let dt = if USE_FIXED_DT.load(Relaxed) {
+        FIXED_DT.load(Relaxed)
+    } else {
+        let v_max = vel
+            .par_iter()
+            .map(|v| v.length())
+            .reduce_with(|a, b| a.max(b))
+            .unwrap();
+        let mut dt = (LAMBDA.load(Relaxed) * H / v_max).min(MAX_DT.load(Relaxed));
+        if v_max < VELOCITY_EPSILON || !dt.is_normal() {
+            dt = INITIAL_DT.load(Relaxed)
+        }
+        dt
+    };
     *current_t += dt;
     dt
 }

@@ -152,5 +152,61 @@
     "url": "/stoked2d/week3/",
     
     "relUrl": "/week3/"
+  },"22": {
+    "doc": "Analyzing Parameters",
+    "title": "Setting",
+    "content": ". | let \\(N=1591, h=0.02, \\nu_2 = 0\\) | water height: \\(2.96m\\) . | . | . ",
+    "url": "/stoked2d/week4/#setting",
+    
+    "relUrl": "/week4/#setting"
+  },"23": {
+    "doc": "Analyzing Parameters",
+    "title": "Oscillation Frequency over Stiffness",
+    "content": ". | fixed \\(\\Delta t=\\frac{1}{5000}\\) | time interval \\(2s \\le t \\le 12s\\) | the signal is \\(f(t) = \\rho_{avg}(t) - \\rho_0\\), which measures compression | use Fourier analysis to find: . | peak frequency of the oscillation | zero frequency (total density error) | . | . ",
+    "url": "/stoked2d/week4/#oscillation-frequency-over-stiffness",
+    
+    "relUrl": "/week4/#oscillation-frequency-over-stiffness"
+  },"24": {
+    "doc": "Analyzing Parameters",
+    "title": "Results:",
+    "content": "Total density error as a function of \\(k\\): . Oscillation peak frequency as a function of \\(k\\): . ",
+    "url": "/stoked2d/week4/#results",
+    
+    "relUrl": "/week4/#results"
+  },"25": {
+    "doc": "Analyzing Parameters",
+    "title": "Interpretation:",
+    "content": ". | viscosity doesn’t change the frequency or total error in this setting | error decreases exponentially with \\(k\\) (?) | oscillation frequency increases with \\(k\\) . | possible explanation: \\(f \\propto c\\) since the oscillations move at the speed of sound \\(c\\) | Newton–Laplace equation: \\(c = \\sqrt{\\left(\\frac{\\partial P}{\\partial \\rho}\\right)}= \\sqrt{\\frac{k}{\\rho}}\\) | explains \\(\\sqrt{x}\\)-shaped curve | . | . ",
+    "url": "/stoked2d/week4/#interpretation",
+    
+    "relUrl": "/week4/#interpretation"
+  },"26": {
+    "doc": "Analyzing Parameters",
+    "title": "Stability over Viscosity, Stiffness and Timestep Size",
+    "content": ". | time interval: \\(10s \\le t \\le 20s\\) | time integral of kinetic energy (less is better): . | \\[E_{kin, int} = \\int_{10s}^{20s} \\frac{1}{N}\\sum_{i=1}^N \\frac{1}{2} m_i (\\vec{v}_i \\cdot \\vec{v}_i) \\, dt\\] | . | peak average kinetic energy (less is better): . | \\[E_{kin, peak} = \\max_{10s \\le t \\le 20s} \\frac{1}{N}\\sum_{i=1}^N \\frac{1}{2} m_i \\left(\\vec{v}_i(t) \\cdot \\vec{v}_i(t)\\right) \\, dt\\] | . | . ",
+    "url": "/stoked2d/week4/#stability-over-viscosity-stiffness-and-timestep-size",
+    
+    "relUrl": "/week4/#stability-over-viscosity-stiffness-and-timestep-size"
+  },"27": {
+    "doc": "Analyzing Parameters",
+    "title": "Fixed Timestep",
+    "content": ". | set \\(\\lambda = 0.1\\) | \\(k\\) on the x-axis, \\(\\nu\\) on the y-axis | . $$E_{kin, int}$$ $$E_{kin, peak}$$ ",
+    "url": "/stoked2d/week4/#fixed-timestep",
+    
+    "relUrl": "/week4/#fixed-timestep"
+  },"28": {
+    "doc": "Analyzing Parameters",
+    "title": "Fixed Viscosity",
+    "content": ". | set \\(\\nu = 0.001\\) | \\(k\\) on the x-axis, \\(\\nu\\) on the y-axis | . $$E_{kin, int}$$ $$E_{kin, peak}$$ ",
+    "url": "/stoked2d/week4/#fixed-viscosity",
+    
+    "relUrl": "/week4/#fixed-viscosity"
+  },"29": {
+    "doc": "Analyzing Parameters",
+    "title": "Analyzing Parameters",
+    "content": " ",
+    "url": "/stoked2d/week4/",
+    
+    "relUrl": "/week4/"
   }
 }

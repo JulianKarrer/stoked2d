@@ -253,7 +253,7 @@ pub fn draw_particles(
     });
 }
 
-fn get_next_timestep(current_t: f64, hist: &History) -> &HistoryTimestep {
+pub fn get_next_timestep(current_t: f64, hist: &History) -> &HistoryTimestep {
     let res = hist.steps.iter().find(|hts| hts.current_t >= current_t);
     if let Some(hts) = res {
         hts
@@ -354,6 +354,8 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         let mut solver: Solver = SOLVER.load(Relaxed);
         let mut max_delta_rho: f64 = MAX_RHO_DEVIATION.load(Relaxed);
         let mut lambda: f64 = LAMBDA.load(Relaxed);
+        let mut fixed_dt: f64 = FIXED_DT.load(Relaxed);
+        let mut use_fixed_dt: bool = USE_FIXED_DT.load(Relaxed);
         let mut max_dt: f64 = MAX_DT.load(Relaxed);
         let mut init_dt: f64 = INITIAL_DT.load(Relaxed);
         let mut resort: u32 = { *RESORT_ATTRIBUTES_EVERY_N.read() };
@@ -397,6 +399,16 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                                 .clamp_range(0.001..=1.0),
                         );
                         ui.label("Maximum Δt");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut use_fixed_dt, "use");
+                        ui.add(
+                            egui::DragValue::new(&mut fixed_dt)
+                                .speed(0.0001)
+                                .max_decimals(4)
+                                .clamp_range(0.0..=1.0),
+                        );
+                        ui.label("Fixed Δt");
                     });
                     ui.horizontal(|ui| {
                         ui.add(
@@ -738,6 +750,8 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         LAMBDA.store(lambda, Relaxed);
         MAX_DT.store(max_dt, Relaxed);
         INITIAL_DT.store(init_dt, Relaxed);
+        FIXED_DT.store(fixed_dt, Relaxed);
+        USE_FIXED_DT.store(use_fixed_dt, Relaxed);
         GRAVITY.store(gravity, Relaxed);
         K.store(k, Relaxed);
         NU.store(nu, Relaxed);

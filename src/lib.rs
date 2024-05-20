@@ -94,15 +94,17 @@ const BOUNDARY_LAYER_COUNT: usize = 1;
 const USE_GPU_BOUNDARY: bool = true;
 
 /// Viscosity constant Nu
-static NU: AtomicF64 = AtomicF64::new(0.001);
-static NU_2: AtomicF64 = AtomicF64::new(0.020);
+pub static NU: AtomicF64 = AtomicF64::new(0.001);
+pub static NU_2: AtomicF64 = AtomicF64::new(0.020);
 /// Stiffness constant determining the incompressibility in the state equation
-static K: AtomicF64 = AtomicF64::new(1000.);
+pub static K: AtomicF64 = AtomicF64::new(1000.);
 
 /// The factor of the maximum size of a time step taken each iteration
-static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
+pub static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
 static MAX_DT: AtomicF64 = AtomicF64::new(0.001);
 static INITIAL_DT: AtomicF64 = AtomicF64::new(0.0001);
+pub static FIXED_DT: AtomicF64 = AtomicF64::new(0.0001);
+pub static USE_FIXED_DT: AtomicBool = AtomicBool::new(false);
 /// Rest density of the fluid
 static RHO_ZERO: AtomicF64 = AtomicF64::new(1.0);
 /// The maximum acceptable absolute density deviation in iterative SESPH with splitting
@@ -111,7 +113,7 @@ static MAX_RHO_DEVIATION: AtomicF64 = AtomicF64::new(0.05);
 static PRESSURE_EQ: AtomicPressureEquation =
     AtomicPressureEquation::new(simulation::PressureEquation::ClampedRelative);
 // whether to compute the hamiltonian of the system or not
-static COMPUTE_HAMILTONIAN: AtomicBool = AtomicBool::new(false);
+static COMPUTE_HAMILTONIAN: AtomicBool = AtomicBool::new(true);
 
 // constants that are consequences of other constants or the dimensionality
 const DIMENSIONS: f64 = 2.;
@@ -128,8 +130,8 @@ const WORKGROUP_SIZE: usize = 256;
 // video settings
 const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
-const VIDEO_FPS: usize = 155;
-const FRAME_TIME: f32 = 1. / (VIDEO_FPS as f32);
+pub const HISTORY_UPDATE_HZ: usize = 155;
+pub const HISTORY_FRAME_TIME: f32 = 1. / (HISTORY_UPDATE_HZ as f32);
 // const FRAME_TIME: f32 = 0.0;
 
 /// Get the current timestamp in microseconds

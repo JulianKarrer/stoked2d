@@ -122,7 +122,7 @@ impl Attributes {
         let jitter = INITIAL_JITTER.load(Relaxed);
 
         let y_num = ((2. * y_half) / H) as usize;
-        let pos = linspace(-y_half, y_half, y_num)
+        let pos: Vec<DVec2> = linspace(-y_half, y_half, y_num)
             .par_iter()
             .enumerate()
             .flat_map(|(y_index, y)| {
@@ -169,6 +169,7 @@ impl Attributes {
                     .collect::<Vec<DVec2>>()
             })
             .collect();
+        println!("N={}", pos.len());
         Self::attributes_from_pos(pos, bdy)
     }
 
@@ -188,16 +189,16 @@ impl Attributes {
     // HAMIULTONIAN COMPUTATION ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     pub fn compute_hamiltonian(&self, boundary: &Boundary) -> f64 {
-        (self.compute_pressure_energy(boundary, &SPH_KERNELS.read().density)
-            + self.compute_kinetic_energy()
-            + self.compute_gravitational_potential_energy())
-            / self.pos.len() as f64
+        // self.compute_pressure_energy(boundary, &SPH_KERNELS.read().density)
+        // +
+        self.compute_average_kinetic_energy()
+        // + self.compute_gravitational_potential_energy()
     }
 
     /// Compute the total potential energy of the system stored in deformations that cause
     /// pressure forces. This function is the same as `add_pressure_accelerations`, except
     /// it uses a positive sum over kernels instead of the negative kernel gradient.
-    pub fn compute_pressure_energy(&self, boundary: &Boundary, knl: &KernelType) -> f64 {
+    pub fn compute_average_pressure_energy(&self, boundary: &Boundary, knl: &KernelType) -> f64 {
         let rho_0 = RHO_ZERO.load(Relaxed);
         let one_over_rho_0_squared = 1.0 / (rho_0 * rho_0);
         let gamma_2 = GAMMA_2.load(Relaxed);
@@ -229,24 +230,27 @@ impl Attributes {
                             .sum::<f64>()
             })
             .sum::<f64>()
+            / (self.pos.len() as f64)
     }
 
     // Compute the total kinteic energy of the system.
-    fn compute_kinetic_energy(&self) -> f64 {
+    fn compute_average_kinetic_energy(&self) -> f64 {
         self.vel
             .par_iter()
             .zip(&self.mas)
             .map(|(v_i, m_i)| 0.5 * m_i * v_i.length_squared())
-            .sum()
+            .sum::<f64>()
+            / (self.pos.len() as f64)
     }
 
     // Compute the total kinteic energy of the system.
-    fn compute_gravitational_potential_energy(&self) -> f64 {
+    fn compute_average_gravitational_potential_energy(&self) -> f64 {
         let g = GRAVITY.load(Relaxed).abs();
         self.pos
             .par_iter()
             .zip(&self.mas)
             .map(|(x_i, m_i)| m_i * g * (x_i.y))
-            .sum()
+            .sum::<f64>()
+            / (self.pos.len() as f64)
     }
 }
