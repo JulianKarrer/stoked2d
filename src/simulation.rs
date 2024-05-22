@@ -97,7 +97,6 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
         boundary,
         &knls.density,
     );
-    update_pressures(&state.den, &mut state.prs);
     // apply external forces
     apply_non_pressure_forces(
         &state.pos,
@@ -109,6 +108,7 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
         boundary,
         &knls.viscosity,
     );
+    update_pressures(&state.den, &mut state.prs);
     // apply pressure forces
     add_pressure_accelerations(
         &state.pos,
@@ -122,6 +122,137 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
     );
     // perform a time step
     let dt = update_dt(&state.vel, current_t);
+    time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
+}
+
+/// Perform a simulation update step using the SESPH solver with splitting.
+/// Non-pressure forces are integrated first, then densities are predicted
+/// based on the predicted velocities
+fn sesph_splitting(
+    state: &mut Attributes,
+    current_t: &mut f64,
+    boundary: &Boundary,
+    knls: &SphKernel,
+) {
+    // update densities and pressures
+    update_densities(
+        &state.pos,
+        &mut state.den,
+        &state.mas,
+        &state.grid,
+        boundary,
+        &knls.density,
+    );
+    // apply external forces
+    apply_non_pressure_forces(
+        &state.pos,
+        &state.vel,
+        &mut state.acc,
+        &state.den,
+        &state.mas,
+        &state.grid,
+        boundary,
+        &knls.viscosity,
+    );
+    let dt = update_dt(&state.vel, current_t);
+    // predict velocities
+    state
+        .vel
+        .par_iter_mut()
+        .zip(&state.acc)
+        .for_each(|(vel_i, acc_i)| *vel_i += dt * (*acc_i));
+    // predict densities from predicted velocities
+    predict_densities(
+        dt,
+        &state.vel,
+        &state.pos,
+        &mut state.den,
+        &state.mas,
+        &state.grid,
+        boundary,
+        &knls.density,
+    );
+    update_pressures(&state.den, &mut state.prs);
+    // apply pressure forces
+    state
+        .acc
+        .par_iter_mut()
+        .for_each(|acc_i| *acc_i = DVec2::ZERO);
+    add_pressure_accelerations(
+        &state.pos,
+        &state.den,
+        &state.prs,
+        &state.mas,
+        &mut state.acc,
+        &state.grid,
+        boundary,
+        &knls.pressure,
+    );
+    // perform a time step
+    time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
+}
+
+/// Perform a simulation update step using an iterative SESPH solver with splitting.
+/// Non-pressure forces are integrated first, then densities are predicted
+/// based on the predicted velocities. This is iterated, refining the predicted velocities.
+fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls: &SphKernel) {
+    // update densities and pressures
+    update_densities(
+        &state.pos,
+        &mut state.den,
+        &state.mas,
+        &state.grid,
+        boundary,
+        &knls.density,
+    );
+    // apply external forces
+    apply_non_pressure_forces(
+        &state.pos,
+        &state.vel,
+        &mut state.acc,
+        &state.den,
+        &state.mas,
+        &state.grid,
+        boundary,
+        &knls.viscosity,
+    );
+    let dt = update_dt(&state.vel, current_t);
+    for _ in 0..3 {
+        // predict velocities
+        state
+            .vel
+            .par_iter_mut()
+            .zip(&state.acc)
+            .for_each(|(vel_i, acc_i)| *vel_i += dt * (*acc_i));
+        // predict densities from predicted velocities
+        predict_densities(
+            dt,
+            &state.vel,
+            &state.pos,
+            &mut state.den,
+            &state.mas,
+            &state.grid,
+            boundary,
+            &knls.density,
+        );
+        update_pressures(&state.den, &mut state.prs);
+        // apply pressure forces
+        state
+            .acc
+            .par_iter_mut()
+            .for_each(|acc_i| *acc_i = DVec2::ZERO);
+        add_pressure_accelerations(
+            &state.pos,
+            &state.den,
+            &state.prs,
+            &state.mas,
+            &mut state.acc,
+            &state.grid,
+            boundary,
+            &knls.pressure,
+        );
+    }
+    // perform a time step
     time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
 }
 
@@ -241,13 +372,54 @@ fn update_densities(
             *rho_i = grid
                 .query_index(i)
                 .iter()
-                .map(|j| knl.w(x_i, &pos[*j]) * mas[i])
+                .map(|j| knl.w(x_i, &pos[*j]) * mas[*j])
                 .sum::<f64>()
                 + boundary
                     .grid
                     .query_radius(x_i, &boundary.pos, KERNEL_SUPPORT)
                     .iter()
                     .map(|j| knl.w(x_i, &boundary.pos[*j]) * &boundary.m[*j])
+                    .sum::<f64>();
+        });
+}
+
+/// Predict densities at each particle, given a set of predicted velocities
+fn predict_densities(
+    dt: f64,
+    vel: &[DVec2],
+    pos: &[DVec2],
+    den: &mut [f64],
+    mas: &[f64],
+    grid: &Grid,
+    boundary: &Boundary,
+    knl: &KernelType,
+) {
+    pos.par_iter()
+        .enumerate()
+        .zip(den)
+        .zip(vel)
+        .for_each(|(((i, x_i), rho_i), vel_i)| {
+            *rho_i = grid
+                .query_index(i)
+                .iter()
+                .map(|j| knl.w(x_i, &pos[*j]) * mas[*j])
+                .sum::<f64>()
+                + dt * grid
+                    .query_index(i)
+                    .iter()
+                    .map(|j| mas[*j] * knl.dw(x_i, &pos[*j]).dot(*vel_i - vel[*j]))
+                    .sum::<f64>()
+                + boundary
+                    .grid
+                    .query_radius(x_i, &boundary.pos, KERNEL_SUPPORT)
+                    .iter()
+                    .map(|j| knl.w(x_i, &boundary.pos[*j]) * &boundary.m[*j])
+                    .sum::<f64>()
+                + dt * boundary
+                    .grid
+                    .query_radius(x_i, &boundary.pos, KERNEL_SUPPORT)
+                    .iter()
+                    .map(|j| &boundary.m[*j] * knl.dw(x_i, &boundary.pos[*j]).dot(*vel_i))
                     .sum::<f64>();
         });
 }
@@ -359,6 +531,8 @@ fn enforce_boundary_conditions(pos: &mut [DVec2], vel: &mut [DVec2], acc: &mut [
 /// A fluid solver, implementing a single simulation step of some SPH method.
 pub enum Solver {
     SESPH,
+    SplittingSESPH,
+    IterSESPH,
 }
 
 impl Solver {
@@ -378,6 +552,8 @@ impl Solver {
     ) {
         match self {
             Solver::SESPH => sesph(state, current_t, boundary, knls),
+            Solver::SplittingSESPH => sesph_splitting(state, current_t, boundary, knls),
+            Solver::IterSESPH => sesph_iter(state, current_t, boundary, knls),
         }
     }
 }

@@ -247,7 +247,7 @@ pub fn draw_particles(
         let colour = gradient.at((c * 2.0 - 1.0) * gradient_flipper * 0.5 + 0.5);
         graphics.draw_circle(
             camera_transform(p, &off, z, w, h),
-            0.5 * z * H as f32,
+            0.5 * z * H as f32 * 1.1,
             Color::from_rgb(colour.r as f32, colour.g as f32, colour.b as f32),
         )
     });
@@ -504,6 +504,12 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         .selected_text(format!("{:?}", solver))
                         .show_ui(ui, |ui: &mut Ui| {
                             ui.selectable_value(&mut solver, Solver::SESPH, "SESPH");
+                            ui.selectable_value(
+                                &mut solver,
+                                Solver::SplittingSESPH,
+                                "Splitting SESPH",
+                            );
+                            ui.selectable_value(&mut solver, Solver::IterSESPH, "Iterative SESPH");
                         });
                     ui.horizontal(|ui| {
                         ui.add(
