@@ -34,6 +34,11 @@ ffmpeg -i out.webm -c:v librav1e -qp 120 -speed 3 low_nu_highres.mp4 -y
 
 
 PREPARE FOR YOUTUBE
-ffmpeg -framerate 60 -pattern_type glob -i '*.jpg' -movflags faststart -profile:v high -bf 2 -g 30 -coder 1 \
--crf 18 -pix_fmt yuv420p -vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1" \
--an -c:v libx264 -crf 18 -preset veryslow -t 20 out.mp4
+ffmpeg -framerate 60 -pattern_type glob -i '*.jpg' -movflags faststart -profile:v high444 -bf 2 -g 30 -coder 1 \
+-vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,scale=iw*4:ih*4:flags=neighbor" \
+-an -c:v libx264 -crf 16 -preset veryslow \
+-colorspace:v "bt709" -color_primaries:v "bt709" -color_trc:v "bt709" -color_range:v "tv" out.mp4
+
+
+
+colorspace=all=bt709:itrc=srgb:fast=0,

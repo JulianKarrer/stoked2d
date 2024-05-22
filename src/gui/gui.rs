@@ -1,3 +1,4 @@
+use std::f64::consts::PI;
 use std::sync::Mutex;
 
 use crate::simulation::{PressureEquation, Solver};
@@ -95,6 +96,34 @@ pub fn camera_transform(
     )
 }
 
+// generate a white texture, the transparency of which is set using an SPH cubic spline kernel
+lazy_static! {
+    static ref SPH_KERNEL_IMAGE: [u8; (SPH_KERNEL_IMAGE_SIZE * SPH_KERNEL_IMAGE_SIZE) * 4] =
+        generate_sph_image();
+}
+const SPH_KERNEL_IMAGE_SIZE: usize = 1025;
+fn generate_sph_image() -> [u8; (SPH_KERNEL_IMAGE_SIZE * SPH_KERNEL_IMAGE_SIZE) * 4] {
+    fn w(q: f64) -> f64 {
+        let t1 = (1.0 - q).max(0.0);
+        let t2 = (2.0 - q).max(0.0);
+        (5.0 / (14.0 * PI)) * (t2 * t2 * t2 - 4.0 * t1 * t1 * t1)
+    }
+    let half_range = (SPH_KERNEL_IMAGE_SIZE as f64) / 2.;
+    core::array::from_fn(|i| match i % 4 {
+        0 => 255u8,
+        1 => 255u8,
+        2 => 255u8,
+        _ => {
+            let j = i / 4;
+            let x = ((j % SPH_KERNEL_IMAGE_SIZE) as f64 - half_range) / half_range;
+            let y = ((j / SPH_KERNEL_IMAGE_SIZE) as f64 - half_range) / half_range;
+            let dist = (x * x + y * y).sqrt();
+            // this cubic spline has kernel support 2 and w(0)=0.45
+            (w(dist * 2.) / 0.45 * 255.).clamp(0.0, 255.0).round() as u8
+        }
+    })
+}
+
 const ICON_ALPHA: [u8; 1024] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -176,6 +205,62 @@ pub fn draw_particles(
     let z = ZOOM.load(Relaxed);
     let off = *(*DRAG_OFFSET).read();
 
+    // draw each particle, with (0,0) being the centre of the screen
+    let scheme = COLOUR_SCHEME.load(Relaxed);
+    let gradient = match scheme {
+        ColourScheme::Spectral => colorgrad::spectral(),
+        ColourScheme::Rainbow => colorgrad::rainbow(),
+        ColourScheme::Virdis => colorgrad::viridis(),
+    };
+    let gradient_flipper = if scheme == ColourScheme::Virdis {
+        1.0
+    } else {
+        -1.0
+    };
+    // draw all particles
+    let quad_radius = z * 2. * H as f32;
+    let img = graphics
+        .create_image_from_raw_pixels(
+            speedy2d::image::ImageDataType::RGBA,
+            speedy2d::image::ImageSmoothingMode::NearestNeighbor,
+            Vector2::new(SPH_KERNEL_IMAGE_SIZE as u32, SPH_KERNEL_IMAGE_SIZE as u32),
+            &*SPH_KERNEL_IMAGE,
+        )
+        .unwrap();
+    let img_coords = [
+        speedy2d::dimen::Vec2::new(0.0, 0.0),
+        speedy2d::dimen::Vec2::new(0.0, 1.0),
+        speedy2d::dimen::Vec2::new(1.0, 1.0),
+        speedy2d::dimen::Vec2::new(1.0, 0.0),
+    ];
+    timestep.pos.iter().enumerate().for_each(|(i, p)| {
+        let c = match VISUALIZED_FEATURE.load(Relaxed) {
+            VisualizedFeature::Density => {
+                let (min, max) = (0.8, 1.2);
+                (timestep.densities[i].min(max) - min) / (max - min)
+            }
+            VisualizedFeature::SpaceFillingCurve => {
+                timestep.grid_handle_index[i] as f64 / timestep.pos.len() as f64
+            }
+            VisualizedFeature::Velocity => timestep.velocities[i] / 20.,
+        };
+        let colour = gradient.at((c * 2.0 - 1.0) * gradient_flipper * 0.5 + 0.5);
+        let colour = Color::from_rgb(colour.r as f32, colour.g as f32, colour.b as f32);
+        let centre = camera_transform(p, &off, z, w, h);
+        graphics.draw_quad_image_tinted_four_color(
+            [
+                speedy2d::dimen::Vec2::new(centre.x - quad_radius, centre.y - quad_radius),
+                speedy2d::dimen::Vec2::new(centre.x - quad_radius, centre.y + quad_radius),
+                speedy2d::dimen::Vec2::new(centre.x + quad_radius, centre.y + quad_radius),
+                speedy2d::dimen::Vec2::new(centre.x + quad_radius, centre.y - quad_radius),
+            ],
+            [colour; 4],
+            img_coords,
+            &img,
+        );
+        // graphics.draw_circle(centre, radius, colour)
+    });
+
     // draw the boundary
     if !USE_GPU_BOUNDARY {
         graphics.draw_rectangle(
@@ -220,37 +305,6 @@ pub fn draw_particles(
             )
         });
     }
-
-    // draw each particle, with (0,0) being the centre of the screen
-    let scheme = COLOUR_SCHEME.load(Relaxed);
-    let gradient = match scheme {
-        ColourScheme::Spectral => colorgrad::spectral(),
-        ColourScheme::Rainbow => colorgrad::rainbow(),
-        ColourScheme::Virdis => colorgrad::viridis(),
-    };
-    let gradient_flipper = if scheme == ColourScheme::Virdis {
-        1.0
-    } else {
-        -1.0
-    };
-    timestep.pos.iter().enumerate().for_each(|(i, p)| {
-        let c = match VISUALIZED_FEATURE.load(Relaxed) {
-            VisualizedFeature::Density => {
-                let (min, max) = (0.8, 1.2);
-                (timestep.densities[i].min(max) - min) / (max - min)
-            }
-            VisualizedFeature::SpaceFillingCurve => {
-                timestep.grid_handle_index[i] as f64 / timestep.pos.len() as f64
-            }
-            VisualizedFeature::Velocity => timestep.velocities[i] / 20.,
-        };
-        let colour = gradient.at((c * 2.0 - 1.0) * gradient_flipper * 0.5 + 0.5);
-        graphics.draw_circle(
-            camera_transform(p, &off, z, w, h),
-            0.5 * z * H as f32 * 1.1,
-            Color::from_rgb(colour.r as f32, colour.g as f32, colour.b as f32),
-        )
-    });
 }
 
 pub fn get_next_timestep(current_t: f64, hist: &History) -> &HistoryTimestep {

@@ -70,7 +70,7 @@ lazy_static! {
         )
     ]));
     pub static ref HISTORY: Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
-    static ref SOLVER: AtomicSolver = AtomicSolver::new(simulation::Solver::IterSESPH);
+    static ref SOLVER: AtomicSolver = AtomicSolver::new(simulation::Solver::SplittingSESPH);
     static ref SPH_KERNELS: Arc<RwLock<SphKernel>> = Arc::new(RwLock::new(SphKernel::default()));
     static ref RESORT_ATTRIBUTES_EVERY_N: Arc<RwLock<u32>> = Arc::new(RwLock::new(4));
     static ref BDY_MIN: Float2 = HARD_BOUNDARY.read()[0]
@@ -84,7 +84,7 @@ lazy_static! {
 /// The gravitational constant
 static GRAVITY: AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-pub const H: f64 = 0.04;
+pub const H: f64 = 0.02;
 pub static INITIAL_JITTER: AtomicF64 = AtomicF64::new(0.01 * H);
 // boundary handling
 pub static GAMMA_1: AtomicF64 = AtomicF64::new(1.);

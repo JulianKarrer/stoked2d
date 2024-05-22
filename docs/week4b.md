@@ -2,7 +2,7 @@
 layout: page
 title: Improving the Pressure Solver
 permalink: /week4b/
-nav_order: 3
+nav_order: 5
 ---
 <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
@@ -39,8 +39,18 @@ potentially iterate $$(l=3)$$:
 # Poiseuille's Law in action
 with new pressure solver, attempt [physics experiment](http://hyperphysics.phy-astr.gsu.edu/hbase/pber2.html#pdrop){:target="_blank"} and check plausibility
 
-<iframe width="100%" style="aspect-ratio:16/9;" src="https://www.youtube-nocookie.com/embed/h0M7KVCSxm4?si=YDGhupEVjbDAdEA0" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<iframe width="100%" style="aspect-ratio:16/9;" src="https://www.youtube-nocookie.com/embed/-ALPBdZS_FE?si=QcRpry-MF6bWVN0L" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 - when flow is laminar and flowrate is constant
-- pressure drop $$ \Delta p \propto l\cdot \nu $$
+- pressure drop $$\propto$$ slope of heights $$ \Delta p \propto l\cdot \nu $$
   - oberservable in the small water columns
+
+low viscosity $$\nu=0.0001, k=1000, t=7.16$$:
+<a href="{{ '/assets/week4/00430_low_nu.jpg' | relative_url }}" rel="noopener noreferrer" target="_blank">
+  <img src="{{ '/assets/week4/00430_low_nu.jpg' | relative_url }}" alt="Poiseuille demo with low viscosity"/>
+</a> 
+
+high viscosity $$\nu=0.2, k=2000, t=7.16$$:
+<a href="{{ '/assets/week4/00430_high_nu.jpg' | relative_url }}" rel="noopener noreferrer" target="_blank">
+  <img src="{{ '/assets/week4/00430_high_nu.jpg' | relative_url }}" alt="Poiseuille demo with high viscosity"/>
+</a> 

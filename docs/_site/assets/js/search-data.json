@@ -218,7 +218,7 @@
   },"31": {
     "doc": "Improving the Pressure Solver",
     "title": "Poiseuille’s Law in action",
-    "content": "with new pressure solver, attempt physics experiment and check plausibility . | when flow is laminar and flowrate is constant | pressure drop \\(\\Delta p \\propto l\\cdot \\nu\\) . | oberservable in the small water columns | . | . ",
+    "content": "with new pressure solver, attempt physics experiment and check plausibility . | when flow is laminar and flowrate is constant | pressure drop \\(\\propto\\) slope of heights \\(\\Delta p \\propto l\\cdot \\nu\\) . | oberservable in the small water columns | . | . low viscosity \\(\\nu=0.0001, k=1000, t=7.16\\): . high viscosity \\(\\nu=0.2, k=2000, t=7.16\\): . ",
     "url": "/stoked2d/week4b/#poiseuilles-law-in-action",
     
     "relUrl": "/week4b/#poiseuilles-law-in-action"
@@ -229,5 +229,40 @@
     "url": "/stoked2d/week4b/",
     
     "relUrl": "/week4b/"
+  },"33": {
+    "doc": "Better Rendering",
+    "title": "Better Rendering",
+    "content": " ",
+    "url": "/stoked2d/week4c/#better-rendering",
+    
+    "relUrl": "/week4c/#better-rendering"
+  },"34": {
+    "doc": "Better Rendering",
+    "title": "Problem",
+    "content": "Rendering particles as circles: . | looks noisy | is physically inaccurate/misleading | creates aliasing (especially at smaller resolutions) | clobbers quality when video compression is used | . ",
+    "url": "/stoked2d/week4c/#problem",
+    
+    "relUrl": "/week4c/#problem"
+  },"35": {
+    "doc": "Better Rendering",
+    "title": "Goal",
+    "content": ". | Use SPH to interpolate, then visualize . | storing acceleration datastructure each frame takes too much memory | rendering each frame when simulating disallows responsive zooming/panning etc. | an SPH query per pixel is expensive | . | . ",
+    "url": "/stoked2d/week4c/#goal",
+    
+    "relUrl": "/week4c/#goal"
+  },"36": {
+    "doc": "Better Rendering",
+    "title": "Solution",
+    "content": ". | particles are quads with side length \\(4h\\) | instanciate a quad at each particle location | give each quad a white texture with SPH kernel weight in alpha channel . | Cubic Spline Kernel for \\(h=1\\) used: \\(W(q) = \\frac{5}{14\\pi} \\max(0, 2-q)^3 -4 \\max(0, 1-q)^3\\) | calculate pixel centre’s distance from texture centre: \\(d\\) | normalize to \\(\\hat{d} \\in [0;\\sqrt{2}]\\) | for \\(h=1\\) in 2D the kernel support is \\(2\\) and \\(W(0)=0.45\\) | use \\(r=255, g=255, b=255, \\alpha = 255*\\left\\lfloor\\frac{W(2\\hat{d})}{0.45}\\right\\rfloor\\) | . | tint the texture according to particle velocity/density/etc in a material | . \\(\\Longrightarrow\\) abuse OpenGL to perform SPH sums! . ",
+    "url": "/stoked2d/week4c/#solution",
+    
+    "relUrl": "/week4c/#solution"
+  },"37": {
+    "doc": "Better Rendering",
+    "title": "Better Rendering",
+    "content": " ",
+    "url": "/stoked2d/week4c/",
+    
+    "relUrl": "/week4c/"
   }
 }

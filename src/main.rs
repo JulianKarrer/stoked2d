@@ -22,7 +22,7 @@ fn main() {
         if cfg!(feature = "gpu") {
             while gpu_version::gpu::run(None) {}
         } else {
-            while simulation::run(None, "setting-pdrop-laminar.png") {}
+            while simulation::run(None, "scenes/setting-pdrop-laminar.png") {}
         }
     });
     window.run_loop(egui_speedy2d::WindowWrapper::new(StokedWindowHandler {}));
