@@ -8,12 +8,12 @@ use crate::{
     simulation::update_fps,
     *,
 };
-use indicatif::{ProgressBar, ProgressStyle};
 use ocl::{
     prm::{Float, Uint2},
     ProQue,
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use utils::create_progressbar;
 // use crate::video::VideoHandler
 
 pub fn run(run_for_t: Option<f32>) -> bool {
@@ -56,19 +56,7 @@ pub fn run(run_for_t: Option<f32>) -> bool {
 
     // set up video handler for rendering and progress bar for feedback
     // let mut vid = VideoHandler::default();
-    let progressbar = if run_for_t.is_some() {
-        Some({
-            let progress =
-                ProgressBar::new((run_for_t.unwrap() / HISTORY_FRAME_TIME).ceil() as u64);
-            progress.set_message(format!("{} ITERS/S", SIM_FPS.load(Relaxed)));
-            progress.set_style(
-      ProgressStyle::with_template("{msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} (ETA {eta})").unwrap()
-    );
-            progress
-        })
-    } else {
-        None
-    };
+    let progressbar = create_progressbar(run_for_t);
 
     // MAIN LOOP
     let mut last_update_time = timestamp();

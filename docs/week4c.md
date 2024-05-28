@@ -2,7 +2,7 @@
 layout: page
 title: Better Rendering
 permalink: /week4c/
-nav_order: 4
+nav_order: 5
 ---
 <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>

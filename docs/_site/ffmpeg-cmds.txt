@@ -29,7 +29,7 @@ ffmpeg -framerate 30 -pattern_type glob -i '*.jpg' -an -preset veryslow -vf "cro
 ffmpeg -i out.webm -filter:v fps=30 -an -vf scale="740:-1" -c:v libx264 -crf 18 -ss 4 -t 10 -preset veryslow visc_no_adhesion.mp4
 
 
-ffmpeg -i out.webm -filter:v fps=30 -an -c:v libx264 -crf 18 -preset veryslow -t 15 -vf "crop=2*in_w/3:in_h" low_nu_highres.mp4 -y
+ffmpeg -i out.webm -t 4 -vf "crop=in_w/3:in_h" -an  -preset veryslow  col_issesph.webm -y
 ffmpeg -i out.webm -c:v librav1e -qp 120 -speed 3 low_nu_highres.mp4 -y
 
 

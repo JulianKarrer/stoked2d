@@ -2,7 +2,7 @@
 layout: page
 title: Improving the Pressure Solver
 permalink: /week4b/
-nav_order: 5
+nav_order: 4
 ---
 <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
@@ -37,7 +37,7 @@ potentially iterate $$(l=3)$$:
 - $$\Longrightarrow$$ lower compression
 
 # Poiseuille's Law in action
-with new pressure solver, attempt [physics experiment](http://hyperphysics.phy-astr.gsu.edu/hbase/pber2.html#pdrop){:target="_blank"} and check plausibility
+with new pressure solver, attempt [physics experiment](http://hyperphysics.phy-astr.gsu.edu/hbase/pber2.html#pdrop){:target="_blank"} to demonstrate the [Hagen–Poiseuille equation](https://en.wikipedia.org/wiki/Hagen%E2%80%93Poiseuille_equation){:target="_blank"} and check plausibility
 
 <iframe width="100%" style="aspect-ratio:16/9;" src="https://www.youtube-nocookie.com/embed/-ALPBdZS_FE?si=QcRpry-MF6bWVN0L" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 

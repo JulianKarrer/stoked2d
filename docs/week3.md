@@ -1,6 +1,6 @@
 ---
 layout: page
-title: Cohesion, Adhesion & Surface Tension
+title: Basic Adhesion
 permalink: /week3/
 nav_order: 2
 ---

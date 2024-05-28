@@ -64,18 +64,31 @@ Oscillation peak frequency as a function of $$k$$:
 </div>
 
 ## Fixed Viscosity
-- set $$\nu = 0.001$$
+- set $$\nu = 0.0001$$
 - $$k$$ on the x-axis, $$\nu$$ on the y-axis
 
+
+### Results for [Improved Pressure Solvers]({% link week4b.md %}):
+
+
+<a href="{{ '/assets/week4/stability_solvers.png' | relative_url }}" rel="noopener noreferrer" target="_blank">
+  <img src="{{ '/assets/week4/stability_solvers.png' | relative_url }}" alt="Stability for fixed viscosity and different pressure solvers"/>
+</a> 
+
+
+- new solvers help reduce error in this setting by orders of magnitude!
+
+## Video of increased stability:
+- $$\nu=0.0001,\nu_2=0, \lambda = 0.1, k=1000$$
+- from left to right: SESPH, SESPH with splitting, iterated SESPH with splitting  
 <div style="display: flex;">
-  <div style="width:50%">
-  $$E_{kin, int}$$
-    {% include plot_stability_lambda_int_1716168583.html %}
-  </div>
-  <div style="width:50%">
-  $$E_{kin, peak}$$
-    {% include plot_stability_lambda_peak_1716168583.html %}
-  </div>
+  <video style="width:33.3%;" loop muted autoplay controls>
+    <source src="{{ '/assets/week4/col_sesph.webm' | relative_url }}" type="video/webm">
+  </video>
+  <video style="width:33.3%;" loop muted autoplay controls>
+    <source src="{{ '/assets/week4/col_ssesph.webm' | relative_url }}" type="video/webm">
+  </video>
+  <video style="width:33.3%;" loop muted autoplay controls>
+    <source src="{{ '/assets/week4/col_issesph.webm' | relative_url }}" type="video/webm">
+  </video>
 </div>
-
-

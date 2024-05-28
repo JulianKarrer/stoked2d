@@ -4,6 +4,8 @@ use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 use std::{fmt::Debug, time::Duration};
+use strum_macros::EnumIter;
+use utils::create_progressbar;
 
 use self::{
     attributes::Attributes,
@@ -13,11 +15,9 @@ use self::{
 
 // MAIN SIMULATION LOOP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pub fn run(run_for_t: Option<f64>, path: &str) -> bool {
+pub fn run(run_for_t: Option<f32>, path: &str) -> bool {
     let boundary = Boundary::from_image(path, 0.01, &{ *SPH_KERNELS.read() }.density);
     let mut state = Attributes::from_image(path, 0.01, &boundary);
-
-    // state.resort(&grid);
     let mut current_t = 0.0;
     let mut since_resort = 0;
     // reset history and add first timestep
@@ -34,6 +34,8 @@ pub fn run(run_for_t: Option<f64>, path: &str) -> bool {
             .write()
             .reset_and_add(&state, &state.grid, &boundary, current_t);
     }
+    // set up progress bar
+    let progressbar = create_progressbar(run_for_t);
     let mut last_update_time = timestamp();
     let mut last_gui_update_t = 0.0f64;
     while !*REQUEST_RESTART.read() {
@@ -60,6 +62,12 @@ pub fn run(run_for_t: Option<f64>, path: &str) -> bool {
         // write back the positions to the global buffer for visualization and update the FPS count
         update_fps(&mut last_update_time);
         if current_t - last_gui_update_t > HISTORY_FRAME_TIME.into() {
+            // update the progress bar
+            if let Some(ref bar) = progressbar {
+                bar.inc(1);
+                bar.set_message(format!("{:.3} ITERS/S", SIM_FPS.load(Relaxed)));
+            }
+            // update the gui
             last_gui_update_t = current_t;
             {
                 HISTORY
@@ -75,7 +83,8 @@ pub fn run(run_for_t: Option<f64>, path: &str) -> bool {
         }
         // if only a specific time frame was requested, stop the simulation
         if let Some(max_t) = run_for_t {
-            if max_t <= current_t {
+            if max_t as f64 <= current_t {
+                progressbar.unwrap().finish();
                 return false;
             }
         }
@@ -134,15 +143,6 @@ fn sesph_splitting(
     boundary: &Boundary,
     knls: &SphKernel,
 ) {
-    // update densities and pressures
-    update_densities(
-        &state.pos,
-        &mut state.den,
-        &state.mas,
-        &state.grid,
-        boundary,
-        &knls.density,
-    );
     // apply external forces
     apply_non_pressure_forces(
         &state.pos,
@@ -190,13 +190,7 @@ fn sesph_splitting(
     );
     // perform a time step
     time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
-}
-
-/// Perform a simulation update step using an iterative SESPH solver with splitting.
-/// Non-pressure forces are integrated first, then densities are predicted
-/// based on the predicted velocities. This is iterated, refining the predicted velocities.
-fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls: &SphKernel) {
-    // update densities and pressures
+    // update densities at the end to make sure the gui output matches reality
     update_densities(
         &state.pos,
         &mut state.den,
@@ -205,6 +199,12 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, 
         boundary,
         &knls.density,
     );
+}
+
+/// Perform a simulation update step using an iterative SESPH solver with splitting.
+/// Non-pressure forces are integrated first, then densities are predicted
+/// based on the predicted velocities. This is iterated, refining the predicted velocities.
+fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls: &SphKernel) {
     // apply external forces
     apply_non_pressure_forces(
         &state.pos,
@@ -254,6 +254,15 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, 
     }
     // perform a time step
     time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
+    // update densities at the end to make sure the gui output matches reality
+    update_densities(
+        &state.pos,
+        &mut state.den,
+        &state.mas,
+        &state.grid,
+        boundary,
+        &knls.density,
+    );
 }
 
 // FUNCTIONS USED ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -527,7 +536,7 @@ fn enforce_boundary_conditions(pos: &mut [DVec2], vel: &mut [DVec2], acc: &mut [
 
 // STRUCTURE DEFINITIONS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #[atomic_enum]
-#[derive(PartialEq)]
+#[derive(PartialEq, EnumIter)]
 /// A fluid solver, implementing a single simulation step of some SPH method.
 pub enum Solver {
     SESPH,

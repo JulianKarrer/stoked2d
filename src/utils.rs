@@ -1,8 +1,12 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use core::sync::atomic::Ordering::Relaxed;
 use glam::DVec2;
+use indicatif::{ProgressBar, ProgressStyle};
 use rand::{thread_rng, Rng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+
+use crate::{HISTORY_FRAME_TIME, SIM_FPS};
 
 /// Efficiently calculates the next multiple of 'multiple_of' which is greater or
 /// equal to 'n'. Equivalent to the rounded up result of division.
@@ -96,4 +100,21 @@ pub fn is_black(r: u8, g: u8, b: u8, a: u8) -> bool {
 /// For values of RGBA in bytes, determine if the colour represented is blue.
 pub fn is_blue(r: u8, g: u8, b: u8, a: u8) -> bool {
     a > 100 && b > (r + 10) && b > (g + 10)
+}
+
+// Create a progressbar
+pub fn create_progressbar(run_for_t: Option<f32>) -> Option<ProgressBar> {
+    if run_for_t.is_some() {
+        Some({
+            let progress =
+                ProgressBar::new((run_for_t.unwrap() / HISTORY_FRAME_TIME).ceil() as u64);
+            progress.set_message(format!("{} ITERS/S", SIM_FPS.load(Relaxed)));
+            progress.set_style(
+      ProgressStyle::with_template("{msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} (ETA {eta})").unwrap()
+    );
+            progress
+        })
+    } else {
+        None
+    }
 }

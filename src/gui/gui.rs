@@ -441,16 +441,16 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                             egui::DragValue::new(&mut init_dt)
                                 .speed(0.00001)
                                 .max_decimals(5)
-                                .clamp_range(0.00001..=1.0),
+                                .clamp_range(0.00001..=f64::MAX),
                         );
                         ui.label("Initial Δt");
                     });
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::DragValue::new(&mut max_dt)
-                                .speed(0.001)
-                                .max_decimals(3)
-                                .clamp_range(0.001..=1.0),
+                                .speed(0.0001)
+                                .max_decimals(4)
+                                .clamp_range(0.0001..=f64::MAX),
                         );
                         ui.label("Maximum Δt");
                     });
@@ -460,7 +460,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                             egui::DragValue::new(&mut fixed_dt)
                                 .speed(0.0001)
                                 .max_decimals(4)
-                                .clamp_range(0.0..=1.0),
+                                .clamp_range(0.0..=f64::MAX),
                         );
                         ui.label("Fixed Δt");
                     });

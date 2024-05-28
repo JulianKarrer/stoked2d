@@ -70,7 +70,7 @@ lazy_static! {
         )
     ]));
     pub static ref HISTORY: Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
-    static ref SOLVER: AtomicSolver = AtomicSolver::new(simulation::Solver::SplittingSESPH);
+    pub static ref SOLVER: AtomicSolver = AtomicSolver::new(simulation::Solver::IterSESPH);
     static ref SPH_KERNELS: Arc<RwLock<SphKernel>> = Arc::new(RwLock::new(SphKernel::default()));
     static ref RESORT_ATTRIBUTES_EVERY_N: Arc<RwLock<u32>> = Arc::new(RwLock::new(4));
     static ref BDY_MIN: Float2 = HARD_BOUNDARY.read()[0]
@@ -97,10 +97,10 @@ const USE_GPU_BOUNDARY: bool = true;
 pub static NU: AtomicF64 = AtomicF64::new(0.0001);
 pub static NU_2: AtomicF64 = AtomicF64::new(0.020);
 /// Stiffness constant determining the incompressibility in the state equation
-pub static K: AtomicF64 = AtomicF64::new(650.);
+pub static K: AtomicF64 = AtomicF64::new(500.);
 
 /// The factor of the maximum size of a time step taken each iteration
-pub static LAMBDA: AtomicF64 = AtomicF64::new(0.4);
+pub static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
 static MAX_DT: AtomicF64 = AtomicF64::new(0.001);
 static INITIAL_DT: AtomicF64 = AtomicF64::new(0.0001);
 pub static FIXED_DT: AtomicF64 = AtomicF64::new(0.0001);

@@ -139,15 +139,15 @@
     
     "relUrl": "/week2/"
   },"20": {
-    "doc": "Cohesion, Adhesion & Surface Tension",
+    "doc": "Basic Adhesion",
     "title": "Adhesion through viscosity",
     "content": "(\\(j\\) are fluid neighbours, \\(k\\) are boundary neighbours) . | previously used viscosity: . | \\[a_{i,vis} = 2\\nu \\sum_{j} \\frac{m_j}{\\rho_{j}} \\frac{\\vec{v}_{ij} \\cdot \\vec{x}_{ij}} \\nabla W_{ij} {\\lVert \\vec{x}_{ij}\\rVert^2 + 0.01h^2}\\] | . | correct for dimensionality: factor \\(2(\\text{dimensions}+2)\\) instead of \\(2\\) ? | introduce \\(\\nu_2\\) . | projected on boundary surface \\(\\hat{\\vec{n}}\\Longrightarrow\\) adhesion without tangential friction | \\[\\hat{\\vec{n}} = \\begin{cases} \\frac{\\sum_k \\nabla W_{ik}}{\\lVert\\sum_k \\nabla W_{ik}\\rVert} &amp; \\lVert\\sum_k \\nabla W_{ik}\\rVert&gt;0\\\\ \\vec{0} &amp; \\text{otherwise}\\\\ \\end{cases}\\] | \\[a_{i,vis} = 2(\\text{dimensions}+2)\\left( \\nu_1 \\sum_{j} \\frac{m_j}{\\rho_{j}} \\frac{\\vec{v}_{ij} \\cdot \\vec{x}_{ij}} {\\lVert \\vec{x}_{ij}\\rVert^2 + 0.01h^2} \\nabla W_{ij} + \\left(\\nu_2 \\sum_{k} \\frac{m_k}{\\rho_{0}} \\frac{\\vec{v}_i \\cdot \\vec{x}_{ik}} {\\lVert \\vec{x}_{ik}\\rVert^2 + 0.01h^2} \\nabla W_{ik}\\right) \\cdot \\hat{\\vec{n}} \\odot \\hat{\\vec{n}} \\right)\\] | . | no adhesion, \\(\\nu_1 = 0.002, \\nu_2=0\\): . | . | adhesion, \\(\\nu_1 = 0.001, \\nu_2=0.020\\) lower viscosity possible without instability!: . | . | . ",
     "url": "/stoked2d/week3/#adhesion-through-viscosity",
     
     "relUrl": "/week3/#adhesion-through-viscosity"
   },"21": {
-    "doc": "Cohesion, Adhesion & Surface Tension",
-    "title": "Cohesion, Adhesion & Surface Tension",
+    "doc": "Basic Adhesion",
+    "title": "Basic Adhesion",
     "content": " ",
     "url": "/stoked2d/week3/",
     
@@ -197,67 +197,74 @@
   },"28": {
     "doc": "Analyzing Parameters",
     "title": "Fixed Viscosity",
-    "content": ". | set \\(\\nu = 0.001\\) | \\(k\\) on the x-axis, \\(\\nu\\) on the y-axis | . $$E_{kin, int}$$ $$E_{kin, peak}$$ ",
+    "content": ". | set \\(\\nu = 0.0001\\) | \\(k\\) on the x-axis, \\(\\nu\\) on the y-axis | . Results for Improved Pressure Solvers: . | new solvers help reduce error in this setting by orders of magnitude! | . ",
     "url": "/stoked2d/week4/#fixed-viscosity",
     
     "relUrl": "/week4/#fixed-viscosity"
   },"29": {
+    "doc": "Analyzing Parameters",
+    "title": "Video of increased stability:",
+    "content": ". | \\[\\nu=0.0001,\\nu_2=0, \\lambda = 0.1, k=1000\\] | from left to right: SESPH, SESPH with splitting, iterated SESPH with splitting | . ",
+    "url": "/stoked2d/week4/#video-of-increased-stability",
+    
+    "relUrl": "/week4/#video-of-increased-stability"
+  },"30": {
     "doc": "Analyzing Parameters",
     "title": "Analyzing Parameters",
     "content": " ",
     "url": "/stoked2d/week4/",
     
     "relUrl": "/week4/"
-  },"30": {
+  },"31": {
     "doc": "Improving the Pressure Solver",
     "title": "Operator Splitting:",
     "content": "Split up the pressure and non-pressure accelerations. The entire algorithm is now: . | \\[\\rho_i = \\sum_j W_{ij} m_j + \\sum_k W_{ik} m_k\\] | \\[a^{vis}_i = 2\\nu_1(d+2) \\sum_j \\frac{m_j}{\\rho_j} \\frac{\\vec{v}_{i,j}\\cdot \\vec{x}_{ij}}{\\lVert\\vec{x}_{ij}\\rVert^2 + 0.01h^2} \\nabla W_{ij}\\] | \\[a^{adh}_i = 2\\nu_2(d+2) \\sum_k \\frac{m_k}{\\rho_0} \\frac{\\vec{v}_{i}\\cdot \\vec{x}_{ik}}{\\lVert\\vec{x}_{ik}\\rVert^2 + 0.01h^2} \\nabla W_{ik}\\] | \\[a^{\\text{non-pressure}}_i = a^{vis}_i + a^{adh}_i + \\left(\\begin{array}{c} 0\\\\-9.81\\end{array}\\right)\\] | \\[\\Delta t = \\min\\left(0.001, \\lambda \\frac{h}{v_{max}}\\right)\\] | . potentially iterate \\((l=3)\\): . | \\[\\vec{v}^*_i = v_i(t) + \\Delta t a^{\\text{non-pressure}}_i\\] | \\[\\rho_i = \\sum_j m_j W_ij + \\sum_j m_j (\\vec{v}^*_{ij} \\cdot\\nabla W_{ij}) + \\sum_k m_k W_ik + \\sum_k m_k (\\vec{v}^*_{i} \\cdot\\nabla W_{ik})\\] | \\[p_i = k \\cdot \\max\\left(\\frac{\\rho_i}{\\rho_0}-1, 0\\right)\\] | \\[a^p_i = -m_i \\sum_j \\left(\\frac{p_i}{\\rho_i^2} + \\frac{p_j}{\\rho_j^2}\\right) \\nabla W_{ij} - \\gamma_2 \\left(\\frac{p_i}{\\rho_i^2} + \\frac{p_i}{\\rho_0^2}\\right) \\cdot \\sum_k m_k \\nabla W_{ik}\\] | . | \\[\\vec{v}_i(t+\\Delta t) = \\vec{v}_i^* + \\Delta t a^p_i\\] | \\[\\vec{x}_i(t+\\Delta t) = \\vec{x}_i + \\Delta t \\vec{v}_i(t+\\Delta t)\\] | Yields the SplitingSESPH and IterSESPH solvers | \\(\\Longrightarrow\\) actually massive stability improvement for low viscosity! | \\(\\Longrightarrow\\) lower compression | . ",
     "url": "/stoked2d/week4b/#operator-splitting",
     
     "relUrl": "/week4b/#operator-splitting"
-  },"31": {
+  },"32": {
     "doc": "Improving the Pressure Solver",
     "title": "Poiseuille’s Law in action",
-    "content": "with new pressure solver, attempt physics experiment and check plausibility . | when flow is laminar and flowrate is constant | pressure drop \\(\\propto\\) slope of heights \\(\\Delta p \\propto l\\cdot \\nu\\) . | oberservable in the small water columns | . | . low viscosity \\(\\nu=0.0001, k=1000, t=7.16\\): . high viscosity \\(\\nu=0.2, k=2000, t=7.16\\): . ",
+    "content": "with new pressure solver, attempt physics experiment to demonstrate the Hagen–Poiseuille equation and check plausibility . | when flow is laminar and flowrate is constant | pressure drop \\(\\propto\\) slope of heights \\(\\Delta p \\propto l\\cdot \\nu\\) . | oberservable in the small water columns | . | . low viscosity \\(\\nu=0.0001, k=1000, t=7.16\\): . high viscosity \\(\\nu=0.2, k=2000, t=7.16\\): . ",
     "url": "/stoked2d/week4b/#poiseuilles-law-in-action",
     
     "relUrl": "/week4b/#poiseuilles-law-in-action"
-  },"32": {
+  },"33": {
     "doc": "Improving the Pressure Solver",
     "title": "Improving the Pressure Solver",
     "content": " ",
     "url": "/stoked2d/week4b/",
     
     "relUrl": "/week4b/"
-  },"33": {
+  },"34": {
     "doc": "Better Rendering",
     "title": "Better Rendering",
     "content": " ",
     "url": "/stoked2d/week4c/#better-rendering",
     
     "relUrl": "/week4c/#better-rendering"
-  },"34": {
+  },"35": {
     "doc": "Better Rendering",
     "title": "Problem",
     "content": "Rendering particles as circles: . | looks noisy | is physically inaccurate/misleading | creates aliasing (especially at smaller resolutions) | clobbers quality when video compression is used | . ",
     "url": "/stoked2d/week4c/#problem",
     
     "relUrl": "/week4c/#problem"
-  },"35": {
+  },"36": {
     "doc": "Better Rendering",
     "title": "Goal",
     "content": ". | Use SPH to interpolate, then visualize . | storing acceleration datastructure each frame takes too much memory | rendering each frame when simulating disallows responsive zooming/panning etc. | an SPH query per pixel is expensive | . | . ",
     "url": "/stoked2d/week4c/#goal",
     
     "relUrl": "/week4c/#goal"
-  },"36": {
+  },"37": {
     "doc": "Better Rendering",
     "title": "Solution",
     "content": ". | particles are quads with side length \\(4h\\) | instanciate a quad at each particle location | give each quad a white texture with SPH kernel weight in alpha channel . | Cubic Spline Kernel for \\(h=1\\) used: \\(W(q) = \\frac{5}{14\\pi} \\max(0, 2-q)^3 -4 \\max(0, 1-q)^3\\) | calculate pixel centre’s distance from texture centre: \\(d\\) | normalize to \\(\\hat{d} \\in [0;\\sqrt{2}]\\) | for \\(h=1\\) in 2D the kernel support is \\(2\\) and \\(W(0)=0.45\\) | use \\(r=255, g=255, b=255, \\alpha = 255*\\left\\lfloor\\frac{W(2\\hat{d})}{0.45}\\right\\rfloor\\) | . | tint the texture according to particle velocity/density/etc in a material | . \\(\\Longrightarrow\\) abuse OpenGL to perform SPH sums! . ",
     "url": "/stoked2d/week4c/#solution",
     
     "relUrl": "/week4c/#solution"
-  },"37": {
+  },"38": {
     "doc": "Better Rendering",
     "title": "Better Rendering",
     "content": " ",
