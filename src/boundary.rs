@@ -18,7 +18,8 @@ use std::sync::atomic::Ordering::Relaxed;
 /// impenetrability of the boundary.
 pub struct Boundary {
     pub pos: Vec<DVec2>,
-    pub m: Vec<f64>,
+    pub vel: Vec<DVec2>,
+    pub mas: Vec<f64>,
     pub grid: Grid,
 }
 
@@ -39,7 +40,8 @@ impl Boundary {
         Boundary::calculate_gammas(knl);
         // compute the masses of each boundary particle
         let mut res = Self {
-            m: vec![0.; pos.len()],
+            mas: vec![0.; pos.len()],
+            vel: vec![DVec2::ZERO; pos.len()],
             pos,
             grid,
         };
@@ -152,7 +154,7 @@ impl Boundary {
         let gamma_1 = GAMMA_1.load(Relaxed);
         let rho_0 = RHO_ZERO.load(Relaxed);
         let knl = { SPH_KERNELS.read().clone() }.density;
-        self.m.par_iter_mut().zip(&self.pos).for_each(|(m, x_i)| {
+        self.mas.par_iter_mut().zip(&self.pos).for_each(|(m, x_i)| {
             *m = rho_0 * gamma_1
                 / self
                     .grid

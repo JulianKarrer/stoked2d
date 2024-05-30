@@ -405,6 +405,8 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         let mut nu2: f64 = NU_2.load(Relaxed);
         let mut rho_0: f64 = RHO_ZERO.load(Relaxed);
         let mut pressure_eq: PressureEquation = PRESSURE_EQ.load(Relaxed);
+        let mut omega_jacobi: f64 = OMEGA_JACOBI.load(Relaxed);
+        let mut jacobi_min_iter: usize = JACOBI_MIN_ITER.load(Relaxed);
         let mut solver: Solver = SOLVER.load(Relaxed);
         let mut max_delta_rho: f64 = MAX_RHO_DEVIATION.load(Relaxed);
         let mut lambda: f64 = LAMBDA.load(Relaxed);
@@ -564,15 +566,33 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                                 "Splitting SESPH",
                             );
                             ui.selectable_value(&mut solver, Solver::IterSESPH, "Iterative SESPH");
+                            ui.selectable_value(&mut solver, Solver::IISPH, "IISPH");
                         });
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::DragValue::new(&mut max_delta_rho)
-                                .speed(0.01)
-                                .max_decimals(3)
-                                .clamp_range(0.01..=0.1),
+                                .speed(0.0001)
+                                .max_decimals(4)
+                                .clamp_range(0.001..=1.0),
                         );
                         ui.label("Max. |Δρ| η");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut omega_jacobi)
+                                .speed(0.001)
+                                .max_decimals(3)
+                                .clamp_range(0.001..=2.0),
+                        );
+                        ui.label("Jacobi relaxation ω");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut jacobi_min_iter)
+                                .speed(1)
+                                .clamp_range(1..=usize::MAX),
+                        );
+                        ui.label("Minimum Jacobi Iterations");
                     });
                     // adjust datastructure settings
                     ui.label(RichText::new("Datastructure").font(header.clone()));
@@ -819,6 +839,8 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         RHO_ZERO.store(rho_0, Relaxed);
         PRESSURE_EQ.store(pressure_eq, Relaxed);
         SOLVER.store(solver, Relaxed);
+        JACOBI_MIN_ITER.store(jacobi_min_iter, Relaxed);
+        OMEGA_JACOBI.store(omega_jacobi, Relaxed);
         MAX_RHO_DEVIATION.store(max_delta_rho, Relaxed);
         if restart != *REQUEST_RESTART.read() {
             *REQUEST_RESTART.write() = restart
