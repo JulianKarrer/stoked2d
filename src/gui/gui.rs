@@ -434,7 +434,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         ui.add(
                             egui::DragValue::new(&mut lambda)
                                 .speed(0.0001)
-                                .clamp_range(0.0001..=1.0),
+                                .clamp_range(0.0001..=2.0),
                         );
                         ui.label("Timestep λ");
                     });

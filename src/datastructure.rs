@@ -1,5 +1,6 @@
 use crate::*;
 use atomic_enum::atomic_enum;
+use boundary::Boundary;
 use lindel::{hilbert_encode, morton_encode};
 use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
@@ -85,6 +86,16 @@ static DIRECTIONS: [DVec2; 9] = [
 ];
 
 impl Grid {
+    /// Create a new grid, allocating space for the given number of particles
+    pub fn new(number_of_particles: usize) -> Self {
+        Self {
+            min: DVec2::NEG_INFINITY,
+            handles: vec![Handle::default(); number_of_particles],
+            neighbours: vec![vec![]; number_of_particles],
+            curve: GRID_CURVE.load(Relaxed),
+        }
+    }
+
     /// Update a grid using the current positions of particles so that neighbours can be queried
     pub fn update_grid(&mut self, pos: &[DVec2], gridsize: f64) {
         // instead of defining the grid from a fixed point or in a fixed rectangle, define it from the minimum
@@ -170,14 +181,47 @@ impl Grid {
         &self.neighbours[i]
     }
 
-    /// Create a new grid, allocating space for the given number of particles
-    pub fn new(number_of_particles: usize) -> Self {
-        Self {
-            min: DVec2::NEG_INFINITY,
-            handles: vec![Handle::default(); number_of_particles],
-            neighbours: vec![vec![]; number_of_particles],
-            curve: GRID_CURVE.load(Relaxed),
-        }
+    // CONVENIENCE FUNCTIONS FOR ITERATING WITH CLOSURES ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    /// Take a `FnMut` closure and apply it to each neighbour of the particle with index `i`.
+    /// Shorthand for `self.query_index(i).iter().for_each(f)`
+    pub fn for_each_fluid<F>(&self, i: usize, f: F)
+    where
+        F: FnMut(&usize),
+    {
+        self.query_index(i).iter().for_each(f)
+    }
+
+    /// Take a `FnMut` closure and map it to each neighbour of the particle with index `i`.
+    /// Shorthand for `self.query_index(i).iter().map(f)`
+    pub fn map_fluid<F, R>(&self, i: usize, f: F) -> std::iter::Map<std::slice::Iter<'_, usize>, F>
+    where
+        F: FnMut(&usize) -> R,
+    {
+        self.query_index(i).iter().map(f)
+    }
+
+    /// Take a `FnMut` closure, map it to each neighbour of the particle with index `i` and sum the result.
+    /// Shorthand for `self.query_index(i).iter().map(f).sum()`
+    pub fn sum_fluid<F, R>(&self, i: usize, f: F) -> R
+    where
+        F: FnMut(&usize) -> R,
+        R: std::iter::Sum,
+    {
+        self.query_index(i).iter().map(f).sum()
+    }
+
+    /// Take an immutable closure and apply it to all boundary neighbours of the given particle index,
+    /// returning the sum of the results.
+    pub fn sum_bdy<F, R>(&self, x_i: &DVec2, bdy: &Boundary, f: F) -> R
+    where
+        F: FnMut(&usize) -> R,
+        R: std::iter::Sum,
+    {
+        self.query_radius(x_i, &bdy.pos, KERNEL_SUPPORT)
+            .iter()
+            .map(f)
+            .sum()
     }
 }
 

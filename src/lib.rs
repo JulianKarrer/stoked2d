@@ -84,23 +84,23 @@ lazy_static! {
 /// The gravitational constant
 static GRAVITY: AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-pub const H: f64 = 0.02;
+pub const H: f64 = 0.04;
 pub static INITIAL_JITTER: AtomicF64 = AtomicF64::new(0.01 * H);
 // boundary handling
 pub static GAMMA_1: AtomicF64 = AtomicF64::new(1.);
-pub static GAMMA_2: AtomicF64 = AtomicF64::new(1.);
+pub static GAMMA_2: AtomicF64 = AtomicF64::new(0.5);
 // gpu boundary
 const BOUNDARY_LAYER_COUNT: usize = 1;
 const USE_GPU_BOUNDARY: bool = true;
 
 /// Viscosity constant Nu
-pub static NU: AtomicF64 = AtomicF64::new(0.0001);
+pub static NU: AtomicF64 = AtomicF64::new(0.0); //0.0001);
 pub static NU_2: AtomicF64 = AtomicF64::new(0.020);
 /// Stiffness constant determining the incompressibility in the state equation
 pub static K: AtomicF64 = AtomicF64::new(500.);
 
 /// The factor of the maximum size of a time step taken each iteration
-pub static LAMBDA: AtomicF64 = AtomicF64::new(0.1);
+pub static LAMBDA: AtomicF64 = AtomicF64::new(0.5);
 static MAX_DT: AtomicF64 = AtomicF64::new(0.001);
 static INITIAL_DT: AtomicF64 = AtomicF64::new(0.0001);
 pub static FIXED_DT: AtomicF64 = AtomicF64::new(0.0001);
@@ -108,7 +108,7 @@ pub static USE_FIXED_DT: AtomicBool = AtomicBool::new(false);
 /// Rest density of the fluid
 static RHO_ZERO: AtomicF64 = AtomicF64::new(1.0);
 /// The maximum acceptable absolute density deviation in iterative SESPH with splitting
-static MAX_RHO_DEVIATION: AtomicF64 = AtomicF64::new(0.01);
+static MAX_RHO_DEVIATION: AtomicF64 = AtomicF64::new(0.001);
 /// The type of equation relating density to pressure (stress to strain)
 static PRESSURE_EQ: AtomicPressureEquation =
     AtomicPressureEquation::new(simulation::PressureEquation::ClampedRelative);
@@ -119,6 +119,7 @@ static COMPUTE_HAMILTONIAN: AtomicBool = AtomicBool::new(true);
 // Jacobi solver relaxation constant
 static OMEGA_JACOBI: AtomicF64 = AtomicF64::new(0.5);
 static JACOBI_MIN_ITER: AtomicUsize = AtomicUsize::new(2);
+const JACOBI_DENOMINATOR_EPSILON: f64 = 1e-9;
 
 // constants that are consequences of other constants or the dimensionality
 const DIMENSIONS: f64 = 2.;
@@ -135,7 +136,7 @@ const WORKGROUP_SIZE: usize = 256;
 // video settings
 const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
-pub const HISTORY_UPDATE_HZ: usize = 155;
+pub const HISTORY_UPDATE_HZ: usize = 60;
 // pub const HISTORY_FRAME_TIME: f32 = 1. / (HISTORY_UPDATE_HZ as f32);
 pub const HISTORY_FRAME_TIME: f32 = 0.0;
 // const FRAME_TIME: f32 = 0.0;

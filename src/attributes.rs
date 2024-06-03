@@ -17,12 +17,15 @@ pub struct Attributes {
     pub pos: Vec<DVec2>,
     pub vel: Vec<DVec2>,
     pub mas: Vec<f64>,
-    // quantities that are overwritten in each timestep
-    pub den: Vec<f64>,
     pub prs: Vec<f64>,
+    pub den: Vec<f64>,
+    // quantities that are overwritten in each timestep
     pub acc: Vec<DVec2>,
-    pub diag: Vec<f64>,
-    pub source: Vec<f64>,
+    pub a_ii: Vec<f64>,
+    pub den_adv: Vec<f64>,
+    pub d_ii: Vec<DVec2>,
+    pub d_ij_p_j: Vec<DVec2>,
+    pub prs_swap: Vec<f64>,
     // structures held that might be updated every timestep
     pub grid: Grid,
 }
@@ -36,9 +39,12 @@ impl Attributes {
         let acc: Vec<DVec2> = vec![DVec2::ZERO; pos.len()];
         let prs: Vec<f64> = vec![0.0; pos.len()];
         let den: Vec<f64> = vec![rho_0; pos.len()];
-        // buffer for the diagonal element in IISPH
-        let diag = vec![0.0; pos.len()];
+        // buffers for IISPH
+        let a_ii = vec![0.0; pos.len()];
         let source = vec![0.0; pos.len()];
+        let d_ii = vec![DVec2::ZERO; pos.len()];
+        let sum_d_ij_p_j = vec![DVec2::ZERO; pos.len()];
+        let prs_swap: Vec<f64> = vec![0.0; pos.len()];
         // create an acceleration datastructure for the positions
         let mut grid = Grid::new(pos.len());
         grid.update_grid(&pos, KERNEL_SUPPORT);
@@ -53,21 +59,21 @@ impl Attributes {
                 // https://cg.informatik.uni-freiburg.de/publications/2018_TOG_pressureBoundaries.pdf
                 // see Equation (13)
                 // actual volume of a particle is determined and mass set to enforce rho_0
-                // let v_f = (m_0 / rho_0)
-                //     / (grid
-                //         .query_index(i)
-                //         .iter()
-                //         .map(|j_f| knl.w(x_i, &pos[*j_f]))
-                //         .sum::<f64>()
-                //         * (m_0 / rho_0)
-                //         + bdy
-                //             .grid
-                //             .query_radius(x_i, &bdy.pos, KERNEL_SUPPORT)
-                //             .iter()
-                //             .map(|j_b| knl.w(x_i, &bdy.pos[*j_b]) * (bdy.mas[*j_b] / rho_0))
-                //             .sum::<f64>());
-                // v_f * rho_0
-                m_0
+                let v_f = (m_0 / rho_0)
+                    / (grid
+                        .query_index(i)
+                        .iter()
+                        .map(|j_f| knl.w(x_i, &pos[*j_f]))
+                        .sum::<f64>()
+                        * (m_0 / rho_0)
+                        + bdy
+                            .grid
+                            .query_radius(x_i, &bdy.pos, KERNEL_SUPPORT)
+                            .iter()
+                            .map(|j_b| knl.w(x_i, &bdy.pos[*j_b]) * (bdy.mas[*j_b] / rho_0))
+                            .sum::<f64>());
+                v_f * rho_0
+                // m_0
             })
             .collect();
         let mut res = Self {
@@ -78,8 +84,11 @@ impl Attributes {
             den,
             mas,
             grid,
-            diag,
-            source,
+            a_ii,
+            d_ii,
+            d_ij_p_j: sum_d_ij_p_j,
+            den_adv: source,
+            prs_swap,
         };
         // immediately resort the attributes that are stored between timesteps to be aligned
         // in memory with the space-filling curve used in the grid
@@ -192,6 +201,8 @@ impl Attributes {
         self.pos = order.par_iter().map(|i| self.pos[*i]).collect();
         self.vel = order.par_iter().map(|i| self.vel[*i]).collect();
         self.mas = order.par_iter().map(|i| self.mas[*i]).collect();
+        self.prs = order.par_iter().map(|i| self.prs[*i]).collect();
+        self.den = order.par_iter().map(|i| self.den[*i]).collect();
     }
 
     // HAMIULTONIAN COMPUTATION ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -96,14 +96,14 @@ pub fn run(run_for_t: Option<f32>, path: &str) -> bool {
 // SOLVERS AVAILABLE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 /// Perform a simulation update step using the basic SESPH solver
-fn sesph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls: &SphKernel) {
+fn sesph(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls: &SphKernel) {
     // update densities and pressures
     update_densities(
         &state.pos,
         &mut state.den,
         &state.mas,
         &state.grid,
-        boundary,
+        bdy,
         &knls.density,
     );
     // apply external forces
@@ -114,7 +114,7 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
         &state.den,
         &state.mas,
         &state.grid,
-        boundary,
+        bdy,
         &knls.viscosity,
     );
     update_pressures(&state.den, &mut state.prs);
@@ -126,7 +126,7 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
         &state.mas,
         &mut state.acc,
         &state.grid,
-        boundary,
+        bdy,
         &knls.pressure,
     );
     // perform a time step
@@ -137,12 +137,7 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
 /// Perform a simulation update step using the SESPH solver with splitting.
 /// Non-pressure forces are integrated first, then densities are predicted
 /// based on the predicted velocities
-fn sesph_splitting(
-    state: &mut Attributes,
-    current_t: &mut f64,
-    boundary: &Boundary,
-    knls: &SphKernel,
-) {
+fn sesph_splitting(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls: &SphKernel) {
     // apply external forces
     apply_non_pressure_forces(
         &state.pos,
@@ -151,7 +146,7 @@ fn sesph_splitting(
         &state.den,
         &state.mas,
         &state.grid,
-        boundary,
+        bdy,
         &knls.viscosity,
     );
     let dt = update_dt(&state.vel, current_t);
@@ -169,7 +164,7 @@ fn sesph_splitting(
         &mut state.den,
         &state.mas,
         &state.grid,
-        boundary,
+        bdy,
         &knls.density,
     );
     update_pressures(&state.den, &mut state.prs);
@@ -185,7 +180,7 @@ fn sesph_splitting(
         &state.mas,
         &mut state.acc,
         &state.grid,
-        boundary,
+        bdy,
         &knls.pressure,
     );
     // perform a time step
@@ -196,7 +191,7 @@ fn sesph_splitting(
         &mut state.den,
         &state.mas,
         &state.grid,
-        boundary,
+        bdy,
         &knls.density,
     );
 }
@@ -204,7 +199,7 @@ fn sesph_splitting(
 /// Perform a simulation update step using an iterative SESPH solver with splitting.
 /// Non-pressure forces are integrated first, then densities are predicted
 /// based on the predicted velocities. This is iterated, refining the predicted velocities.
-fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls: &SphKernel) {
+fn sesph_iter(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls: &SphKernel) {
     // apply external forces
     apply_non_pressure_forces(
         &state.pos,
@@ -213,7 +208,7 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, 
         &state.den,
         &state.mas,
         &state.grid,
-        boundary,
+        bdy,
         &knls.viscosity,
     );
     let dt = update_dt(&state.vel, current_t);
@@ -232,7 +227,7 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, 
             &mut state.den,
             &state.mas,
             &state.grid,
-            boundary,
+            bdy,
             &knls.density,
         );
         update_pressures(&state.den, &mut state.prs);
@@ -248,7 +243,7 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, 
             &state.mas,
             &mut state.acc,
             &state.grid,
-            boundary,
+            bdy,
             &knls.pressure,
         );
     }
@@ -260,12 +255,297 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, 
         &mut state.den,
         &state.mas,
         &state.grid,
-        boundary,
+        bdy,
         &knls.density,
     );
 }
 
-fn iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls: &SphKernel) {
+// ATTEMPT AFTER 2013 PAPER
+fn alt_iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls: &SphKernel) {
+    let knl = &knls.density;
+    // PREDICT ADVECTION
+    update_densities(
+        &state.pos,
+        &mut state.den,
+        &state.mas,
+        &state.grid,
+        boundary,
+        &knls.density,
+    );
+    apply_non_pressure_forces(
+        &state.pos,
+        &state.vel,
+        &mut state.acc,
+        &state.den,
+        &state.mas,
+        &state.grid,
+        boundary,
+        &knls.viscosity,
+    );
+    let dt = update_dt(&state.vel, current_t);
+    state
+        .vel
+        .par_iter_mut()
+        .zip(&state.acc)
+        .for_each(|(vel_i, acc_i)| *vel_i += dt * (*acc_i));
+    state.d_ii.par_iter_mut().enumerate().for_each(|(i, d_ii)| {
+        *d_ii = dt
+            * dt
+            * state
+                .grid
+                .query_index(i)
+                .iter()
+                .map(|j| {
+                    -state.mas[*j] / state.den[i].powi(2) * knl.dw(&state.pos[i], &state.pos[*j])
+                })
+                .sum::<DVec2>();
+    });
+    predict_densities(
+        dt,
+        &state.vel,
+        &state.pos,
+        &mut state.den,
+        &state.mas,
+        &state.grid,
+        boundary,
+        knl,
+    );
+    state.prs.par_iter_mut().for_each(|prs| *prs = *prs * 0.5);
+    state.a_ii.par_iter_mut().enumerate().for_each(|(i, a_ii)| {
+        *a_ii = state
+            .grid
+            .query_index(i)
+            .iter()
+            .map(|j| {
+                let d_ji = -dt.powi(2) * state.mas[i] / state.den[i].powi(2)
+                    * knl.dw(&state.pos[*j], &state.pos[i]);
+                state.mas[*j] * (state.d_ii[i] - d_ji).dot(knl.dw(&state.pos[i], &state.pos[*j]))
+            })
+            .sum::<f64>()
+    });
+    for l in 0..3 {
+        let omega = OMEGA_JACOBI.load(Relaxed);
+        let rho_0 = RHO_ZERO.load(Relaxed);
+        state
+            .d_ij_p_j
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, sum_d_ij_p_j)| {
+                *sum_d_ij_p_j = dt.powi(2)
+                    * state
+                        .grid
+                        .query_index(i)
+                        .iter()
+                        .map(|j| {
+                            -state.mas[*j] / state.den[*j].powi(2)
+                                * state.prs[*j]
+                                * knl.dw(&state.pos[i], &state.pos[*j])
+                        })
+                        .sum::<DVec2>()
+            });
+        let prs_2 = state.prs.clone();
+        state.prs.par_iter_mut().enumerate().for_each(|(i, prs_i)| {
+            *prs_i = (1. - omega) * (*prs_i)
+                + omega
+                    * (1. / state.a_ii[i])
+                    * (rho_0
+                        - state.den[i]
+                        - state
+                            .grid
+                            .query_index(i)
+                            .iter()
+                            .map(|j| {
+                                state.mas[*j]
+                                    * knl.dw(&state.pos[i], &state.pos[*j]).dot(
+                                        state.d_ij_p_j[i]
+                                            - state.d_ii[*j] * prs_2[*j]
+                                            - (state.d_ij_p_j[*j]
+                                                - (-dt.powi(2) * state.mas[i]
+                                                    / state.den[i].powi(2)
+                                                    * knl.dw(&state.pos[*j], &state.pos[i])
+                                                    * (*prs_i))),
+                                    )
+                            })
+                            .sum::<f64>())
+        })
+    }
+    state.acc.fill(DVec2::ZERO);
+    add_pressure_accelerations(
+        &state.pos,
+        &state.den,
+        &state.prs,
+        &state.mas,
+        &mut state.acc,
+        &state.grid,
+        boundary,
+        knl,
+    );
+    time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt)
+}
+
+/// One timestep of the Implicit Incompressible SPH scheme (IISPH)
+/// - Paper: https://cg.informatik.uni-freiburg.de/publications/2013_TVCG_IISPH.pdf
+/// - SplishSplash implementation for reference: https://github.com/InteractiveComputerGraphics/SPlisHSPlasH/blob/master/SPlisHSPlasH/IISPH/TimeStepIISPH.cpp
+/// - coure notes p.168 onwards: https://cg.informatik.uni-freiburg.de/course_notes/sim_03_particleFluids.pdf
+/// - Described in the Tutorial Survey: https://sph-tutorial.physics-simulation.org/pdf/SPH_Tutorial.pdf
+fn iisph(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls: &SphKernel) {
+    // compute non-pressure accelerations
+    apply_non_pressure_forces(
+        &state.pos,
+        &state.vel,
+        &mut state.acc,
+        &state.den,
+        &state.mas,
+        &state.grid,
+        bdy,
+        &knls.viscosity,
+    );
+    // compute v_adv
+    let dt = update_dt(&state.vel, current_t);
+    half_time_step_euler(&mut state.vel, &state.acc, dt);
+
+    // d_ii term
+    state.d_ii.par_iter_mut().enumerate().for_each(|(i, d_ii)| {
+        *d_ii = -state.grid.sum_fluid(i, |j| {
+            state.mas[*j] / state.den[i].powi(2) * knls.density.dw(&state.pos[i], &state.pos[*j])
+        }) - bdy.grid.sum_bdy(&state.pos[i], bdy, |k| {
+            bdy.mas[*k] / state.den[i].powi(2) * knls.density.dw(&state.pos[i], &bdy.pos[*k])
+        })
+    });
+
+    // predicted density due to non-pressure forces
+    state
+        .den_adv
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, rho_adv_i)| {
+            *rho_adv_i = state.den[i]
+                + state.grid.sum_fluid(i, |j| {
+                    dt * state.mas[*j]
+                        * (state.vel[i] - state.vel[*j])
+                            .dot(knls.density.dw(&state.pos[i], &state.pos[*j]))
+                })
+                + bdy.grid.sum_bdy(&state.pos[i], bdy, |k| {
+                    dt * bdy.mas[*k]
+                        * (state.vel[i] - bdy.vel[*k])
+                            .dot(knls.density.dw(&state.pos[i], &bdy.pos[*k]))
+                });
+        });
+
+    // reset pressures to half value
+    state.prs.par_iter_mut().for_each(|prs_i| *prs_i *= 0.5);
+
+    // pre-compute diagonal element for jacobi solver
+    state.a_ii.par_iter_mut().enumerate().for_each(|(i, a_ii)| {
+        *a_ii = state.grid.sum_fluid(i, |j| {
+            let grad = knls.density.dw(&state.pos[i], &state.pos[*j]);
+            let d_ji = grad * state.mas[i] / state.den[i].powi(2); // drop the minus by using W_ij instead of W_ji -> antisymmetry
+            state.mas[*j] * (state.d_ii[i] - d_ji).dot(grad)
+        }) + bdy.grid.sum_bdy(&state.pos[i], bdy, |k| {
+            let grad = knls.density.dw(&state.pos[i], &bdy.pos[*k]);
+            let d_ji = grad * state.mas[i] / state.den[i].powi(2);
+            bdy.mas[*k] * (state.d_ii[i] - d_ji).dot(grad)
+        })
+    });
+
+    // PRESSURE SOLVE
+    let mut l = 0;
+    let mut avg_den_err: f64 = 0.0;
+    let omega = OMEGA_JACOBI.load(Relaxed);
+    let rho_0 = RHO_ZERO.load(Relaxed);
+    while avg_den_err >= MAX_RHO_DEVIATION.load(Relaxed) * rho_0
+        || l < JACOBI_MIN_ITER.load(Relaxed)
+    {
+        // pressure solve iteration
+        // compute sum over d_ij_p_j
+        state
+            .d_ij_p_j
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, d_ij_p_j)| {
+                *d_ij_p_j = state.grid.sum_fluid(i, |j| {
+                    -state.mas[*j] / state.den[*j].powi(2)
+                        * state.prs[*j]
+                        * knls.pressure.dw(&state.pos[i], &state.pos[*j])
+                });
+            });
+
+        // compute new pressure, collect into the prs_swap buffer and return predicted error
+        avg_den_err = state
+            .prs_swap
+            .par_iter_mut()
+            .enumerate()
+            .map(|(i, prs_swap)| {
+                let sum = state.grid.sum_fluid(i, |j| {
+                    let d_jk_p_k = state.d_ij_p_j[*j];
+                    let grad = knls.pressure.dw(&state.pos[i], &state.pos[*j]);
+                    let d_ji = grad * state.mas[i] / state.den[i].powi(2);
+                    let d_ji_p_i = d_ji * state.prs[i];
+                    state.mas[*j]
+                        * (state.d_ij_p_j[i]
+                            - state.d_ii[*j] * state.prs[*j]
+                            - (d_jk_p_k - d_ji_p_i))
+                            .dot(grad)
+                }) + bdy.grid.sum_bdy(&state.pos[i], bdy, |k| {
+                    bdy.mas[*k]
+                        * state.d_ij_p_j[i].dot(knls.pressure.dw(&state.pos[i], &bdy.pos[*k]))
+                });
+                let b = 1. - state.den_adv[i];
+                let denominator = state.a_ii[i] * dt.powi(2);
+                let new_prs = if denominator.abs() > JACOBI_DENOMINATOR_EPSILON {
+                    ((1.0 - omega) * state.prs[i] + omega / denominator * (b - dt.powi(2) * sum))
+                        .max(0.0)
+                } else {
+                    0.0
+                };
+                *prs_swap = new_prs;
+                // return density error
+                if new_prs != 0.0 {
+                    rho_0 * ((state.a_ii[i] * new_prs + sum) * dt.powi(2) - b)
+                } else {
+                    0.0
+                }
+            })
+            .sum::<f64>()
+            / (state.pos.len() as f64);
+
+        // swap the buffers back without moving data for efficiency
+        std::mem::swap(&mut state.prs, &mut state.prs_swap);
+
+        l += 1;
+    }
+    // integrate time
+    state.acc.fill(DVec2::ZERO);
+    add_pressure_accelerations(
+        &state.pos,
+        &state.den,
+        &state.prs,
+        &state.mas,
+        &mut state.acc,
+        &state.grid,
+        &bdy,
+        &knls.pressure,
+    );
+    time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
+
+    // update densities
+    update_densities(
+        &state.pos,
+        &mut state.den,
+        &state.mas,
+        &state.grid,
+        bdy,
+        &knls.density,
+    );
+}
+
+// ATTEMPT AFTER INTERNAL DOC
+fn iisph_semiworking(
+    state: &mut Attributes,
+    current_t: &mut f64,
+    boundary: &Boundary,
+    knls: &SphKernel,
+) {
     // initialization
     // compute densities
     update_densities(
@@ -296,7 +576,8 @@ fn iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
         .for_each(|(vel_i, acc_i)| *vel_i += dt * (*acc_i));
     // compute source term and save it to `den`
     compute_source_term(
-        &mut state.den,
+        &mut state.den_adv,
+        &state.den,
         &state.mas,
         &state.pos,
         &state.vel,
@@ -307,7 +588,8 @@ fn iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
     );
     // compute the diagonal matrix element of Ap for the jacobi solver
     compute_diagonal_element(
-        &mut state.diag,
+        &mut state.a_ii,
+        &state.den,
         &state.pos,
         &state.mas,
         &state.grid,
@@ -315,11 +597,17 @@ fn iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
         dt,
         &knls.density,
     );
-    // set initial pressures to half the previous value
-    state.prs.par_iter_mut().for_each(|prs| *prs = 0.5 * (*prs));
+    state.prs.fill(0.0);
+    state.acc.fill(DVec2::ZERO);
+    // state
+    //     .prs
+    //     .par_iter_mut()
+    //     .enumerate()
+    //     .for_each(|(i, prs)| *prs = (omega * state.source[i] / state.a_ii[i]).max(0.0));
+
     // ITERATE
-    let one_over_rho_0_2 = 1. / RHO_ZERO.load(Relaxed).powi(2);
     let mut rho_err: f64 = 0.0;
+    let rho_0 = RHO_ZERO.load(Relaxed);
     let mut l = 0;
     while l < JACOBI_MIN_ITER.load(Relaxed)
         || rho_err.max(0.0) > MAX_RHO_DEVIATION.load(Relaxed) && !{ *REQUEST_RESTART.read() }
@@ -332,7 +620,8 @@ fn iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
                 .iter()
                 .map(|j| {
                     state.mas[*j]
-                        * (state.prs[i] * one_over_rho_0_2 + state.prs[*j] * one_over_rho_0_2)
+                        * (state.prs[i] / state.den[i].powi(2)
+                            + state.prs[*j] / state.den[*j].powi(2))
                         * knls.pressure.dw(&state.pos[i], &state.pos[*j])
                 })
                 .sum::<DVec2>()
@@ -341,14 +630,12 @@ fn iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
                     .query_radius(&state.pos[i], &boundary.pos, KERNEL_SUPPORT)
                     .iter()
                     .map(|k| {
-                        boundary.mas[*k]
-                            * 2.
-                            * state.prs[i]
-                            * one_over_rho_0_2
+                        boundary.mas[*k] * 2. * state.prs[i] / rho_0.powi(2)
                             * knls.pressure.dw(&state.pos[i], &boundary.pos[*k])
                     })
                     .sum::<DVec2>()
         });
+
         // update pressures
         let omega = OMEGA_JACOBI.load(Relaxed);
         rho_err = state
@@ -356,8 +643,7 @@ fn iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
             .par_iter_mut()
             .enumerate()
             .map(|(i, prs)| {
-                let a_p = dt
-                    * dt
+                let a_p = dt.powi(2)
                     * state
                         .grid
                         .query_index(i)
@@ -368,7 +654,7 @@ fn iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
                                     .dot(knls.pressure.dw(&state.pos[i], &state.pos[*j]))
                         })
                         .sum::<f64>()
-                    + dt * dt
+                    + dt.powi(2)
                         * boundary
                             .grid
                             .query_radius(&state.pos[i], &boundary.pos, KERNEL_SUPPORT)
@@ -379,15 +665,17 @@ fn iisph(state: &mut Attributes, current_t: &mut f64, boundary: &Boundary, knls:
                                         .dot(knls.pressure.dw(&state.pos[i], &boundary.pos[*k]))
                             })
                             .sum::<f64>();
-                if state.diag[i].is_normal() {
-                    *prs = ((1. - omega) * (*prs) + omega * (state.den[i] - a_p) / state.diag[i])
-                        .max(0.0);
+                if state.a_ii[i].is_normal() {
+                    *prs = ((*prs) + omega / state.a_ii[i] * (state.den_adv[i] - a_p)).max(0.0);
                 }
 
-                a_p - state.den[i]
+                a_p - state.den_adv[i]
             })
-            .sum::<f64>()
-            / state.pos.len() as f64;
+            .max_by(|x, y| x.total_cmp(y))
+            .unwrap();
+        // .sum::<f64>()
+        // / state.pos.len() as f64;
+
         l += 1;
     }
     // integrate time
@@ -468,10 +756,7 @@ fn apply_non_pressure_forces(
             // fluid viscosity
             let vis: DVec2 = nu
                 * 2.*(DIMENSIONS + 2.) // 2*(dimensions + 2)
-                * grid
-                    .query_index(i)
-                    .iter()
-                    .map(|j| {
+                * grid.map_fluid(i, |j| {
                         let x_i_j = *x_i - pos[*j];
                         let v_i_j = *v_i - vel[*j];
                         mas[*j] / den[*j] * (v_i_j).dot(x_i_j)
@@ -509,24 +794,17 @@ fn update_densities(
     den: &mut [f64],
     mas: &[f64],
     grid: &Grid,
-    boundary: &Boundary,
+    bdy: &Boundary,
     knl: &KernelType,
 ) {
     pos.par_iter()
         .enumerate()
         .zip(den)
         .for_each(|((i, x_i), rho_i)| {
-            *rho_i = grid
-                .query_index(i)
-                .iter()
-                .map(|j| knl.w(x_i, &pos[*j]) * mas[*j])
-                .sum::<f64>()
-                + boundary
+            *rho_i = grid.sum_fluid(i, |j| knl.w(x_i, &pos[*j]) * mas[*j])
+                + bdy
                     .grid
-                    .query_radius(x_i, &boundary.pos, KERNEL_SUPPORT)
-                    .iter()
-                    .map(|j| knl.w(x_i, &boundary.pos[*j]) * &boundary.mas[*j])
-                    .sum::<f64>();
+                    .sum_bdy(x_i, bdy, |j| knl.w(x_i, &bdy.pos[*j]) * &bdy.mas[*j]);
         });
 }
 
@@ -640,6 +918,14 @@ fn time_step_euler_cromer(pos: &mut [DVec2], vel: &mut [DVec2], acc: &[DVec2], d
         })
 }
 
+/// Integrates accelerations to velocities using a forwards Euler scheme. This adds to the current velocity.
+/// - `v += a * h`
+fn half_time_step_euler(vel: &mut [DVec2], acc: &[DVec2], dt: f64) {
+    vel.par_iter_mut().zip(acc).for_each(|(v, a)| {
+        *v += *a * dt;
+    })
+}
+
 /// Harshly enforce rudimentary boundary conditions by simply setting velocity and acceleration of
 /// particles penetrating the boundary to zero while adjusting ther positions in a direction
 /// orthogonal to the boundary to be within bounds.
@@ -673,7 +959,8 @@ fn enforce_boundary_conditions(pos: &mut [DVec2], vel: &mut [DVec2], acc: &mut [
 }
 
 fn compute_source_term(
-    den: &mut [f64],
+    source: &mut [f64],
+    den: &[f64],
     mas: &[f64],
     pos: &[DVec2],
     vel: &[DVec2],
@@ -683,9 +970,9 @@ fn compute_source_term(
     dt: f64,
 ) {
     let rho_0 = RHO_ZERO.load(Relaxed);
-    den.par_iter_mut().enumerate().for_each(|(i, rho_f)| {
-        *rho_f = rho_0
-            - (*rho_f)
+    source.par_iter_mut().enumerate().for_each(|(i, source)| {
+        *source = rho_0
+            - den[i]
             - dt * grid
                 .query_index(i)
                 .iter()
@@ -705,6 +992,7 @@ fn compute_source_term(
 
 fn compute_diagonal_element(
     diag: &mut [f64],
+    den: &[f64],
     pos: &[DVec2],
     mas: &[f64],
     grid: &Grid,
@@ -723,12 +1011,12 @@ fn compute_diagonal_element(
 
         let t1f: DVec2 = -f_f
             .iter()
-            .map(|j| mas[*j] / (rho_0 * rho_0) * knl.dw(&x_i, &pos[*j]))
+            .map(|j| mas[*j] / den[*j].powi(2) * knl.dw(&x_i, &pos[*j]))
             .sum::<DVec2>();
         let t2f: DVec2 = -2.
             * f_b
                 .iter()
-                .map(|k| boundary.mas[*k] / (rho_0 * rho_0) * knl.dw(&x_i, &boundary.pos[*k]))
+                .map(|k| boundary.mas[*k] / rho_0.powi(2) * knl.dw(&x_i, &boundary.pos[*k]))
                 .sum::<DVec2>();
 
         *a_ff = dt_2
@@ -741,7 +1029,7 @@ fn compute_diagonal_element(
                     .iter()
                     .map(|j| {
                         mas[*j]
-                            * (mas[i] / (rho_0 * rho_0) * knl.dw(&pos[*j], &x_i))
+                            * (mas[i] / den[i].powi(2) * knl.dw(&pos[*j], &x_i))
                                 .dot(knl.dw(&x_i, &pos[*j]))
                     })
                     .sum::<f64>()
@@ -772,18 +1060,12 @@ impl Solver {
     /// uninitialized garbage.
     ///
     /// The grid can also be assumed to be accurate.
-    fn solve(
-        &self,
-        state: &mut Attributes,
-        current_t: &mut f64,
-        boundary: &Boundary,
-        knls: &SphKernel,
-    ) {
+    fn solve(&self, state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls: &SphKernel) {
         match self {
-            Solver::SESPH => sesph(state, current_t, boundary, knls),
-            Solver::SplittingSESPH => sesph_splitting(state, current_t, boundary, knls),
-            Solver::IterSESPH => sesph_iter(state, current_t, boundary, knls),
-            Solver::IISPH => iisph(state, current_t, boundary, knls),
+            Solver::SESPH => sesph(state, current_t, bdy, knls),
+            Solver::SplittingSESPH => sesph_splitting(state, current_t, bdy, knls),
+            Solver::IterSESPH => sesph_iter(state, current_t, bdy, knls),
+            Solver::IISPH => iisph(state, current_t, bdy, knls),
         }
     }
 }

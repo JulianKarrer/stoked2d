@@ -37,7 +37,8 @@ impl Boundary {
         grid.update_grid(&pos, KERNEL_SUPPORT);
 
         // compute gamma values
-        Boundary::calculate_gammas(knl);
+        // Boundary::calculate_gammas(knl);
+
         // compute the masses of each boundary particle
         let mut res = Self {
             mas: vec![0.; pos.len()],
