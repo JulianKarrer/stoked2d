@@ -19,6 +19,7 @@ use speedy2d::{
     window::{self, WindowHelper},
     Graphics2D,
 };
+use utils::{micros_to_seconds, seconds_to_micros, timestamp};
 
 use self::utils::{get_timestamp, unzip_f64_2};
 
@@ -40,6 +41,7 @@ pub static VISUALIZED_FEATURE: AtomicVisualizedFeature =
     AtomicVisualizedFeature::new(VisualizedFeature::Velocity);
 pub static COLOUR_SCHEME: AtomicColourScheme = AtomicColourScheme::new(ColourScheme::Spectral);
 static VIDEO_EXPORT_FPS: AtomicF64 = AtomicF64::new(30.0);
+static DRAW_SPHERES: AtomicBool = AtomicBool::new(false);
 
 lazy_static! {
   static ref DRAG_OFFSET:Arc<RwLock<speedy2d::dimen::Vec2>> = Arc::new(RwLock::new(speedy2d::dimen::Vec2::new(0.0, 0.0)));
@@ -247,18 +249,21 @@ pub fn draw_particles(
         let colour = gradient.at((c * 2.0 - 1.0) * gradient_flipper * 0.5 + 0.5);
         let colour = Color::from_rgb(colour.r as f32, colour.g as f32, colour.b as f32);
         let centre = camera_transform(p, &off, z, w, h);
-        graphics.draw_quad_image_tinted_four_color(
-            [
-                speedy2d::dimen::Vec2::new(centre.x - quad_radius, centre.y - quad_radius),
-                speedy2d::dimen::Vec2::new(centre.x - quad_radius, centre.y + quad_radius),
-                speedy2d::dimen::Vec2::new(centre.x + quad_radius, centre.y + quad_radius),
-                speedy2d::dimen::Vec2::new(centre.x + quad_radius, centre.y - quad_radius),
-            ],
-            [colour; 4],
-            img_coords,
-            &img,
-        );
-        // graphics.draw_circle(centre, radius, colour)
+        if DRAW_SPHERES.load(Relaxed) {
+            graphics.draw_circle(centre, quad_radius / 4., colour)
+        } else {
+            graphics.draw_quad_image_tinted_four_color(
+                [
+                    speedy2d::dimen::Vec2::new(centre.x - quad_radius, centre.y - quad_radius),
+                    speedy2d::dimen::Vec2::new(centre.x - quad_radius, centre.y + quad_radius),
+                    speedy2d::dimen::Vec2::new(centre.x + quad_radius, centre.y + quad_radius),
+                    speedy2d::dimen::Vec2::new(centre.x + quad_radius, centre.y - quad_radius),
+                ],
+                [colour; 4],
+                img_coords,
+                &img,
+            );
+        }
     });
 
     // draw the boundary
@@ -513,7 +518,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         ui.add(
                             egui::DragValue::new(&mut gamma_1)
                                 .speed(0.001)
-                                .clamp_range(0.1..=100.0),
+                                .clamp_range(0.0..=f64::MAX),
                         );
                         ui.label("Boundary density multiplier γ₁");
                     });
@@ -521,7 +526,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         ui.add(
                             egui::DragValue::new(&mut gamma_2)
                                 .speed(0.001)
-                                .clamp_range(0.1..=100.0),
+                                .clamp_range(0.0..=f64::MAX),
                         );
                         ui.label("Boundary pressure force multiplier γ₂");
                     });
@@ -573,9 +578,9 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                             egui::DragValue::new(&mut max_delta_rho)
                                 .speed(0.0001)
                                 .max_decimals(4)
-                                .clamp_range(0.001..=1.0),
+                                .clamp_range(0.0001..=1.0),
                         );
-                        ui.label("Max. |Δρ| η");
+                        ui.label("Max. |Δρ|");
                     });
                     ui.horizontal(|ui| {
                         ui.add(
@@ -647,26 +652,26 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                                 .view_aspect(2.0)
                                 .show(ui, |plot_ui| plot_ui.line(Line::new(avg_den_plot)));
                         });
-                    CollapsingHeader::new("Hamiltonian Plot")
+                    CollapsingHeader::new("Kinetic Energy Plot")
                         .default_open(false)
                         .show(ui, |ui| {
-                            let ham_plot: PlotPoints =
-                                { (*HISTORY).read().plot_hamiltonian.clone().into() };
+                            let kinetic_plot: PlotPoints =
+                                { (*HISTORY).read().plot_kinetic.clone().into() };
                             Plot::new("plot")
                                 .view_aspect(2.0)
-                                .show(ui, |plot_ui| plot_ui.line(Line::new(ham_plot)));
+                                .show(ui, |plot_ui| plot_ui.line(Line::new(kinetic_plot)));
                         });
                     if ui.button("Export Plots").clicked() {
                         let mut plot = standard_2d_plot();
                         let (xs, ys) = unzip_f64_2(&(*HISTORY).read().plot_density);
                         plot.add_trace(Scatter::new(xs, ys).name("Average Density Deviation"));
-                        let (xs, ys) = unzip_f64_2(&(*HISTORY).read().plot_hamiltonian);
+                        let (xs, ys) = unzip_f64_2(&(*HISTORY).read().plot_kinetic);
                         plot.add_trace(Scatter::new(xs, ys).name("Normalized Hamiltonian"));
                         plot.write_html(format!("analysis/plot_den_ham_{}.html", get_timestamp()));
                     }
-                    ui.label(RichText::new("Video Export").font(header.clone()));
 
                     // SAVE VIDEO
+                    ui.label(RichText::new("Video Export").font(header.clone()));
                     if ui.button("Save to Video").clicked() {
                         let hist = { (*HISTORY).read() };
                         let x = WINDOW_SIZE[0].load(Relaxed) as usize;
@@ -684,7 +689,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         ui.add(
                             egui::DragValue::new(&mut video_export_fps)
                                 .speed(1.0)
-                                .clamp_range(0.1..=1000.),
+                                .clamp_range(0.1..=f64::MAX),
                         );
                         ui.label("Image Sequence FPS");
                     });
@@ -710,6 +715,22 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                             frame_number += 1;
                             current_video_t += 1. / video_export_fps;
                         }
+                    }
+                    if ui.button("Screenshot").clicked() {
+                        let x = WINDOW_SIZE[0].load(Relaxed) as usize;
+                        let y = WINDOW_SIZE[1].load(Relaxed) as usize;
+                        let timestamp = get_timestamp();
+                        let cap = graphics.capture(speedy2d::image::ImageDataType::RGB);
+                        VideoHandler::add_raw_frame(cap.data(), 0, timestamp, (x, y));
+                    }
+
+                    // RENDERING SETTINGS
+                    ui.label(RichText::new("Rendering").font(header.clone()));
+                    let mut draw_spheres = DRAW_SPHERES.load(Relaxed);
+                    let init_draw_spheres = draw_spheres;
+                    ui.checkbox(&mut draw_spheres, "Draw Spheres");
+                    if draw_spheres != init_draw_spheres {
+                        DRAW_SPHERES.store(draw_spheres, Relaxed)
                     }
                 })
             });
@@ -810,17 +831,14 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         )
                         .changed()
                     {
-                        // scrubbing on the slider is only enabled when playback is paused
-                        if let PlaybackState::Paused(..) = *playstate {
-                            let hist = (*HISTORY).read();
-                            let res = hist
-                                .steps
-                                .iter()
-                                .enumerate()
-                                .find(|(_, hts)| hts.current_t >= time_selected);
-                            if let Some((i, step)) = res {
-                                *playstate = PlaybackState::Paused(step.current_t, i)
-                            }
+                        let hist = (*HISTORY).read();
+                        let res = hist
+                            .steps
+                            .iter()
+                            .enumerate()
+                            .find(|(_, hts)| hts.current_t >= time_selected);
+                        if let Some((i, step)) = res {
+                            *playstate = PlaybackState::Paused(step.current_t, i)
                         }
                     };
                 });

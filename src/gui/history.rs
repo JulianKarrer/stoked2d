@@ -3,7 +3,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
     attributes::Attributes, boundary::Boundary, datastructure::Grid, gpu_version::gpu::len_float2,
-    utils::average_val, COMPUTE_HAMILTONIAN, RHO_ZERO,
+    utils::average_val, COMPUTE_KINETIC, RHO_ZERO,
 };
 
 /// Represents the features of the simulation that are stored for visualization at any given time step
@@ -20,7 +20,7 @@ pub struct HistoryTimestep {
 pub struct History {
     pub steps: Vec<HistoryTimestep>,
     pub plot_density: Vec<[f64; 2]>,
-    pub plot_hamiltonian: Vec<[f64; 2]>,
+    pub plot_kinetic: Vec<[f64; 2]>,
     pub bdy: Vec<[f64; 2]>,
 }
 
@@ -29,7 +29,7 @@ impl Default for History {
         Self {
             steps: vec![HistoryTimestep::default()],
             plot_density: vec![[0.0, RHO_ZERO.load(atomic::Ordering::Relaxed)]],
-            plot_hamiltonian: vec![],
+            plot_kinetic: vec![],
             bdy: vec![],
         }
     }
@@ -43,8 +43,8 @@ impl History {
         self.steps.shrink_to_fit();
         self.plot_density.clear();
         self.plot_density.shrink_to_fit();
-        self.plot_hamiltonian.clear();
-        self.plot_hamiltonian.shrink_to_fit();
+        self.plot_kinetic.clear();
+        self.plot_kinetic.shrink_to_fit();
     }
 }
 
@@ -59,21 +59,15 @@ impl History {
     ) {
         self.reset();
         self.bdy = bdy.pos.par_iter().map(|p| p.to_array()).collect();
-        self.add(state, grid, current_t, bdy);
+        self.add(state, grid, current_t);
     }
 
-    pub fn add_step(
-        &mut self,
-        state: &Attributes,
-        grid: &Grid,
-        current_t: f64,
-        boundary: &Boundary,
-    ) {
-        self.add(state, grid, current_t, boundary)
+    pub fn add_step(&mut self, state: &Attributes, grid: &Grid, current_t: f64) {
+        self.add(state, grid, current_t)
     }
 
-    fn add(&mut self, state: &Attributes, grid: &Grid, current_t: f64, bdy: &Boundary) {
-        self.add_plot_data_only(state, current_t, bdy);
+    fn add(&mut self, state: &Attributes, grid: &Grid, current_t: f64) {
+        self.add_plot_data_only(state, current_t);
         self.steps.push(HistoryTimestep {
             pos: state.pos.par_iter().map(|p| p.to_array()).collect(),
             current_t,
@@ -83,11 +77,11 @@ impl History {
         })
     }
 
-    pub fn add_plot_data_only(&mut self, state: &Attributes, current_t: f64, bdy: &Boundary) {
+    pub fn add_plot_data_only(&mut self, state: &Attributes, current_t: f64) {
         self.plot_density.push([current_t, average_val(&state.den)]);
-        if COMPUTE_HAMILTONIAN.load(atomic::Ordering::Relaxed) {
-            self.plot_hamiltonian
-                .push([current_t, state.compute_hamiltonian(bdy)]);
+        if COMPUTE_KINETIC.load(atomic::Ordering::Relaxed) {
+            self.plot_kinetic
+                .push([current_t, state.compute_average_kinetic_energy()]);
         }
     }
 }

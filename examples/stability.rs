@@ -28,7 +28,7 @@ fn measure_stability(
                     // only look at kietic energies from `from_time` onwards
                     let data: Vec<[f64; 2]> = (*HISTORY
                         .read()
-                        .plot_hamiltonian
+                        .plot_kinetic
                         .par_iter()
                         .filter(|[t, _e_kin]| *t > from_time)
                         .cloned()

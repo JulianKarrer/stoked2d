@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Analyzing Parameters
-permalink: /week4/
+permalink: /parameters/
 nav_order: 3
 ---
 <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>

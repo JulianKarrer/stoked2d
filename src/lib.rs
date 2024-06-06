@@ -13,7 +13,6 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::{atomic::AtomicU32, Arc};
 use std::thread::{self, available_parallelism};
-use std::time::{SystemTime, UNIX_EPOCH};
 pub mod gui {
     pub mod gui;
     pub mod history;
@@ -84,17 +83,18 @@ lazy_static! {
 /// The gravitational constant
 static GRAVITY: AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-pub const H: f64 = 0.04;
+pub const H: f64 = 0.01;
 pub static INITIAL_JITTER: AtomicF64 = AtomicF64::new(0.01 * H);
 // boundary handling
 pub static GAMMA_1: AtomicF64 = AtomicF64::new(1.);
-pub static GAMMA_2: AtomicF64 = AtomicF64::new(0.5);
+pub static GAMMA_2: AtomicF64 = AtomicF64::new(1.);
+const BDY_SAMPLING_DENSITY: f64 = 0.5 * H;
 // gpu boundary
-const BOUNDARY_LAYER_COUNT: usize = 1;
+const BOUNDARY_LAYER_COUNT: usize = 1; // TODO REMOVE
 const USE_GPU_BOUNDARY: bool = true;
 
 /// Viscosity constant Nu
-pub static NU: AtomicF64 = AtomicF64::new(0.0); //0.0001);
+pub static NU: AtomicF64 = AtomicF64::new(0.0001);
 pub static NU_2: AtomicF64 = AtomicF64::new(0.020);
 /// Stiffness constant determining the incompressibility in the state equation
 pub static K: AtomicF64 = AtomicF64::new(500.);
@@ -103,7 +103,7 @@ pub static K: AtomicF64 = AtomicF64::new(500.);
 pub static LAMBDA: AtomicF64 = AtomicF64::new(0.5);
 static MAX_DT: AtomicF64 = AtomicF64::new(0.001);
 static INITIAL_DT: AtomicF64 = AtomicF64::new(0.0001);
-pub static FIXED_DT: AtomicF64 = AtomicF64::new(0.0001);
+pub static FIXED_DT: AtomicF64 = AtomicF64::new(0.001);
 pub static USE_FIXED_DT: AtomicBool = AtomicBool::new(false);
 /// Rest density of the fluid
 static RHO_ZERO: AtomicF64 = AtomicF64::new(1.0);
@@ -113,7 +113,7 @@ static MAX_RHO_DEVIATION: AtomicF64 = AtomicF64::new(0.001);
 static PRESSURE_EQ: AtomicPressureEquation =
     AtomicPressureEquation::new(simulation::PressureEquation::ClampedRelative);
 // whether to compute the hamiltonian of the system or not
-static COMPUTE_HAMILTONIAN: AtomicBool = AtomicBool::new(true);
+static COMPUTE_KINETIC: AtomicBool = AtomicBool::new(true);
 
 // iisph settings
 // Jacobi solver relaxation constant
@@ -137,20 +137,6 @@ const WORKGROUP_SIZE: usize = 256;
 const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
 pub const HISTORY_UPDATE_HZ: usize = 60;
-// pub const HISTORY_FRAME_TIME: f32 = 1. / (HISTORY_UPDATE_HZ as f32);
-pub const HISTORY_FRAME_TIME: f32 = 0.0;
+pub const HISTORY_FRAME_TIME: f32 = 1. / (HISTORY_UPDATE_HZ as f32);
+// pub const HISTORY_FRAME_TIME: f32 = 0.0;
 // const FRAME_TIME: f32 = 0.0;
-
-/// Get the current timestamp in microseconds
-fn timestamp() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Error getting current time")
-        .as_micros()
-}
-fn micros_to_seconds(timespan: u128) -> f64 {
-    0.000_001 * timespan as f64
-}
-fn seconds_to_micros(timespan: f64) -> u128 {
-    (1_000_000.0 * timespan).round() as u128
-}

@@ -1,15 +1,15 @@
 use crate::{
-    datastructure::Grid, gui::gui::ZOOM, sph::KernelType, utils::is_black, BOUNDARY, GAMMA_1,
-    GAMMA_2, H, HARD_BOUNDARY, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS, WINDOW_SIZE,
+    datastructure::Grid,
+    gui::gui::ZOOM,
+    sph::KernelType,
+    utils::{is_black, linspace},
+    BOUNDARY, GAMMA_1, GAMMA_2, H, HARD_BOUNDARY, KERNEL_SUPPORT, RHO_ZERO, WINDOW_SIZE,
 };
 use glam::DVec2;
 use image::open;
 use ocl::prm::Float2;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelBridge,
-    ParallelIterator,
-};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::sync::atomic::Ordering::Relaxed;
 
 /// A struct representing a set of boundary particles and a respective data structure
@@ -46,7 +46,7 @@ impl Boundary {
             pos,
             grid,
         };
-        res.update_masses();
+        res.update_masses(knl);
         // set the hard boundary
         let xmin = res
             .pos
@@ -73,8 +73,8 @@ impl Boundary {
             .unwrap()
             .y;
         let hbdy = [
-            Float2::new(xmin as f32, ymin as f32),
-            Float2::new(xmax as f32, ymax as f32),
+            Float2::new(xmin as f32 - 5. * H as f32, ymin as f32 - 5. * H as f32),
+            Float2::new(xmax as f32 + 5. * H as f32, ymax as f32 + 5. * H as f32),
         ];
         {
             *HARD_BOUNDARY.write() = hbdy;
@@ -88,6 +88,13 @@ impl Boundary {
         );
         // return the result
         res
+        // ;
+        // Self {
+        //     mas: vec![],
+        //     vel: vec![],
+        //     pos: vec![],
+        //     grid: Grid::new(0),
+        // }
     }
 
     /// Creates a new set of boundary particles in the pos Vec, with an accompanying
@@ -127,22 +134,46 @@ impl Boundary {
     pub fn from_image(path: &str, spacing: f64, knl: &KernelType) -> Self {
         let rgba = open(path).unwrap().into_rgba8();
         let (xsize, ysize) = rgba.dimensions();
-        let x_half = (xsize as f64) * spacing / 2.;
-        let y_half = (ysize as f64) * spacing / 2.;
-        let pos: Vec<DVec2> = rgba
-            .pixels()
-            .enumerate()
-            .par_bridge()
-            .filter(|(_i, p)| {
-                let [r, g, b, a] = p.0;
-                is_black(r, g, b, a)
-            })
-            .map(|(i, _p)| {
-                let x = ((i as u32) % xsize) as f64 * spacing;
-                let y = ((i as u32) / xsize) as f64 * spacing;
-                DVec2::new(x - x_half, -(y - y_half))
+        let x_half = (xsize as f64) * 0.01 / 2.;
+        let y_half = (ysize as f64) * 0.01 / 2.;
+
+        let y_num = ((2. * y_half) / spacing) as usize;
+        let pos: Vec<DVec2> = linspace(-y_half, y_half, y_num)
+            .par_iter()
+            .flat_map(|y| {
+                linspace(-x_half, x_half, ((2. * x_half) / spacing) as usize)
+                    .iter()
+                    .filter_map(|x| {
+                        // if the current pixel position is in bounds
+                        if let Some(pixel) = rgba.get_pixel_checked(
+                            ((x + x_half) / 0.01) as u32,
+                            ((y + y_half) / 0.01) as u32,
+                        ) {
+                            // and if the current pixel is blue
+                            let [r, g, b, a] = pixel.0;
+                            if is_black(r, g, b, a) {
+                                return Some(DVec2::new(*x, -y));
+                            }
+                        }
+                        None
+                    })
+                    .collect::<Vec<DVec2>>()
             })
             .collect();
+        // let pos: Vec<DVec2> = rgba
+        //     .pixels()
+        //     .enumerate()
+        //     .par_bridge()
+        //     .filter(|(_i, p)| {
+        //         let [r, g, b, a] = p.0;
+        //         is_black(r, g, b, a)
+        //     })
+        //     .map(|(i, _p)| {
+        //         let x = ((i as u32) % xsize) as f64 * spacing;
+        //         let y = ((i as u32) / xsize) as f64 * spacing;
+        //         DVec2::new(x - x_half, -(y - y_half))
+        //     })
+        //     .collect();
         Self::boundary_from_positions(pos, knl)
     }
 
@@ -150,20 +181,17 @@ impl Boundary {
     /// which are calculated as a correcting factor for non-uniformly sampled
     /// boundaries.
     ///
-    /// These masses are computed as: m_i = \frac{ \rho_0 \gamma_1 }{\sum_{i_b} W_{i, i_{b}}}
-    pub fn update_masses(&mut self) {
+    /// These masses are computed as: m_i_b = \frac{ \rho_0 \gamma_1 }{\sum_{i_{b_b}} W_{i_b, i_{b_b}}}
+    pub fn update_masses(&mut self, knl: &KernelType) {
         let gamma_1 = GAMMA_1.load(Relaxed);
         let rho_0 = RHO_ZERO.load(Relaxed);
-        let knl = { SPH_KERNELS.read().clone() }.density;
-        self.mas.par_iter_mut().zip(&self.pos).for_each(|(m, x_i)| {
-            *m = rho_0 * gamma_1
-                / self
-                    .grid
-                    .query_radius(x_i, &self.pos, KERNEL_SUPPORT)
-                    .iter()
-                    .map(|j| knl.w(x_i, &self.pos[*j]))
-                    .sum::<f64>();
-        })
+        self.mas = self
+            .pos
+            .par_iter()
+            .map(|x_i| {
+                rho_0 * gamma_1 / self.grid.sum_bdy(x_i, &self, |j| knl.w(x_i, &self.pos[*j]))
+            })
+            .collect();
     }
 
     /// Calculate and set γ<sub>1</sub> and γ<sub>2</sub> into `GAMMA_1` and `GAMMA_2`.

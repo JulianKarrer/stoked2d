@@ -37,6 +37,7 @@ logo: "/assets/android-chrome-512x512.png"
 aux_links:
   "Stoked2D on Github":
     - "https://github.com/JulianKarrer/stoked2d"
+footer_content: "<div style='margin-top: 30vh'></div>"
 # color_scheme: dark
 
 

@@ -1,14 +1,16 @@
 use crate::{
     boundary::Boundary,
     datastructure::Grid,
-    sph::KernelType,
+    simulation::update_densities,
     utils::{is_black, is_blue, linspace},
-    FLUID, GAMMA_2, GRAVITY, H, INITIAL_JITTER, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS, V_ZERO,
+    FLUID, GRAVITY, H, INITIAL_JITTER, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS, V_ZERO,
 };
 use glam::DVec2;
 use image::open;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 use std::sync::atomic::Ordering::Relaxed;
 
 /// Holds all particle data as a struct of arrays
@@ -51,31 +53,17 @@ impl Attributes {
         // define the masses of each particle such that rest density is
         // achieved in the initial configuration
         let knl = { SPH_KERNELS.read().density };
+        let mut den_measured = den.clone();
         let m_0 = rho_0 * V_ZERO;
-        let mas = pos
-            .par_iter()
-            .enumerate()
-            .map(|(i, x_i)| {
-                // https://cg.informatik.uni-freiburg.de/publications/2018_TOG_pressureBoundaries.pdf
-                // see Equation (13)
-                // actual volume of a particle is determined and mass set to enforce rho_0
-                let v_f = (m_0 / rho_0)
-                    / (grid
-                        .query_index(i)
-                        .iter()
-                        .map(|j_f| knl.w(x_i, &pos[*j_f]))
-                        .sum::<f64>()
-                        * (m_0 / rho_0)
-                        + bdy
-                            .grid
-                            .query_radius(x_i, &bdy.pos, KERNEL_SUPPORT)
-                            .iter()
-                            .map(|j_b| knl.w(x_i, &bdy.pos[*j_b]) * (bdy.mas[*j_b] / rho_0))
-                            .sum::<f64>());
-                v_f * rho_0
-                // m_0
-            })
-            .collect();
+        let mut mas: Vec<f64> = vec![m_0; pos.len()];
+
+        for _ in 0..100 {
+            update_densities(&pos, &mut den_measured, &mas, &grid, bdy, &knl);
+            mas.par_iter_mut()
+                .zip(&den_measured)
+                .for_each(|(m, rho_i)| *m = 0.5 * (*m) + 0.5 * ((*m) * rho_0 / rho_i));
+        }
+
         let mut res = Self {
             pos,
             vel,
@@ -131,11 +119,11 @@ impl Attributes {
     /// - each pixel in the input image has a length given in`spacing`
     /// - the centre of the image will be centred around the origin
     /// - all blue pixels are boundaries (b > r+10,g+10 and alpha > 100)
-    pub fn from_image(path: &str, spacing: f64, bdy: &Boundary) -> Self {
+    pub fn from_image(path: &str, bdy: &Boundary) -> Self {
         let rgba = open(path).unwrap().into_rgba8();
         let (xsize, ysize) = rgba.dimensions();
-        let x_half = (xsize as f64) * spacing / 2.;
-        let y_half = (ysize as f64) * spacing / 2.;
+        let x_half = (xsize as f64) * 0.01 / 2.;
+        let y_half = (ysize as f64) * 0.01 / 2.;
         let jitter = INITIAL_JITTER.load(Relaxed);
 
         let y_num = ((2. * y_half) / H) as usize;
@@ -156,8 +144,8 @@ impl Attributes {
                             SmallRng::seed_from_u64((x_index * y_num + y_index) as u64);
                         // if the current pixel position is in bounds
                         if let Some(pixel) = rgba.get_pixel_checked(
-                            ((x + x_half) / spacing) as u32,
-                            ((y + y_half) / spacing) as u32,
+                            ((x + x_half) / 0.01) as u32,
+                            ((y + y_half) / 0.01) as u32,
                         ) {
                             // and if the current pixel is blue
                             let [r, g, b, a] = pixel.0;
@@ -168,7 +156,7 @@ impl Attributes {
                                     .grid
                                     .query_radius(&new_pos, &bdy.pos, KERNEL_SUPPORT)
                                     .iter()
-                                    .all(|bdy_j| bdy.pos[*bdy_j].distance(new_pos) >= H)
+                                    .all(|bdy_j| bdy.pos[*bdy_j].distance(new_pos) >= H * 0.5)
                                 {
                                     // place a particle at the position
                                     return Some(
@@ -207,53 +195,13 @@ impl Attributes {
 
     // HAMIULTONIAN COMPUTATION ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    pub fn compute_hamiltonian(&self, boundary: &Boundary) -> f64 {
-        // self.compute_pressure_energy(boundary, &SPH_KERNELS.read().density)
-        // +
+    pub fn compute_hamiltonian(&self) -> f64 {
         self.compute_average_kinetic_energy()
-        // + self.compute_gravitational_potential_energy()
-    }
-
-    /// Compute the total potential energy of the system stored in deformations that cause
-    /// pressure forces. This function is the same as `add_pressure_accelerations`, except
-    /// it uses a positive sum over kernels instead of the negative kernel gradient.
-    pub fn compute_average_pressure_energy(&self, boundary: &Boundary, knl: &KernelType) -> f64 {
-        let rho_0 = RHO_ZERO.load(Relaxed);
-        let one_over_rho_0_squared = 1.0 / (rho_0 * rho_0);
-        let gamma_2 = GAMMA_2.load(Relaxed);
-        self.pos
-            .par_iter()
-            .enumerate()
-            .zip(&self.prs)
-            .zip(&self.den)
-            .map(|(((i, x_i), p_i), rho_i)| {
-                let p_i_over_rho_i_squared = p_i / (rho_i * rho_i);
-                self.mas[i]
-                    * self.mas[i]
-                    * self
-                        .grid
-                        .query_index(i)
-                        .iter()
-                        .map(|j| {
-                            (p_i_over_rho_i_squared + self.prs[*j] / (self.den[*j] * self.den[*j]))
-                                * knl.w(x_i, &self.pos[*j])
-                        })
-                        .sum::<f64>()
-                    + gamma_2
-                        * (p_i_over_rho_i_squared + p_i * one_over_rho_0_squared)
-                        * boundary
-                            .grid
-                            .query_radius(x_i, &boundary.pos, KERNEL_SUPPORT)
-                            .iter()
-                            .map(|j| knl.w(x_i, &boundary.pos[*j]) * boundary.mas[*j])
-                            .sum::<f64>()
-            })
-            .sum::<f64>()
-            / (self.pos.len() as f64)
+            + self.compute_average_gravitational_potential_energy()
     }
 
     // Compute the total kinteic energy of the system.
-    fn compute_average_kinetic_energy(&self) -> f64 {
+    pub fn compute_average_kinetic_energy(&self) -> f64 {
         self.vel
             .par_iter()
             .zip(&self.mas)

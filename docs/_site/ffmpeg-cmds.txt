@@ -1,5 +1,5 @@
 SCALE:
-ffmpeg -i test2.mp4 -vf scale="620:-1" -an -preset veryslow dam_jitter.mp4
+ffmpeg -i test2.mp4 -vf scale="1800:-1" -an -preset veryslow dam_jitter.mp4
 
 CROP:
 -vf "crop=2*in_w/3:in_h"
@@ -23,10 +23,7 @@ COMPRESS
 ffmpeg -i out.webm -filter:v fps=30 -an -vf scale="736:-1" -c:v libx264 -crf 18 -preset veryslow out2.mp4
 ffmpeg -i out.webm -an -vf scale="736:-1, fps=30" -c:v libvpx-vp9 -b:v 0 -crf 30 -deadline best -row-mt 1 out2.webm
 
-
-ffmpeg -framerate 30 -pattern_type glob -i '*.jpg' -an -preset veryslow -vf "crop=2*in_w/3:in_h" -pix_fmt yuv420p out.webm \
-&& 
-ffmpeg -i out.webm -filter:v fps=30 -an -vf scale="740:-1" -c:v libx264 -crf 18 -ss 4 -t 10 -preset veryslow visc_no_adhesion.mp4
+ffmpeg -framerate 30 -pattern_type glob -i '*.jpg' -an -preset veryslow -pix_fmt yuv420p iisph-poiseuille.webm 
 
 
 ffmpeg -i out.webm -t 4 -vf "crop=in_w/3:in_h" -an  -preset veryslow  col_issesph.webm -y
@@ -40,5 +37,19 @@ ffmpeg -framerate 60 -pattern_type glob -i '*.jpg' -movflags faststart -profile:
 -colorspace:v "bt709" -color_primaries:v "bt709" -color_trc:v "bt709" -color_range:v "tv" out.mp4
 
 
-
-colorspace=all=bt709:itrc=srgb:fast=0,
+MAXIMUM COMPRESSION
+ffmpeg -y -i iisph-dambreak-highres.webm \
+-c:v libvpx-vp9 -b:v 0 -crf 52 \
+-aq-mode 2 -an \
+-tile-columns 0 -tile-rows 0 \
+-frame-parallel 0 -cpu-used 8 \
+-auto-alt-ref 1 -lag-in-frames 25 -g 999 \
+-pass 1 -f webm -threads 8 \
+out.temp && ffmpeg -y -i iisph-dambreak-highres.webm \
+-c:v libvpx-vp9 -b:v 0 -crf 52 \
+-aq-mode 2 -c:a libopus -b:a 12k \
+-tile-columns 2 -tile-rows 2 \
+-frame-parallel 0 -cpu-used -5 \
+-auto-alt-ref 1 -lag-in-frames 25 \
+-pass 2 -g 999 -threads 8 \
+out.webm

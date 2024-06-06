@@ -5,6 +5,7 @@ use lindel::{hilbert_encode, morton_encode};
 use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
+use strum_macros::EnumIter;
 use voracious_radix_sort::{RadixSort, Radixable};
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -55,10 +56,11 @@ pub struct Grid {
     curve: GridCurve,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, EnumIter, Default)]
 #[atomic_enum]
 pub enum GridCurve {
     Morton,
+    #[default]
     XYZ,
     Hilbert,
 }

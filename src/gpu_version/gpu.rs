@@ -13,7 +13,7 @@ use ocl::{
     ProQue,
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use utils::create_progressbar;
+use utils::{create_progressbar, timestamp};
 // use crate::video::VideoHandler
 
 pub fn run(run_for_t: Option<f32>) -> bool {

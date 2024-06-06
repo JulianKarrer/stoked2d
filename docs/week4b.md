@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Improving the Pressure Solver
-permalink: /week4b/
+permalink: /iterative-pressure-solver/
 nav_order: 4
 ---
 <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>

@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Better Rendering
-permalink: /week4c/
+permalink: /better-rendering/
 nav_order: 5
 ---
 <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>

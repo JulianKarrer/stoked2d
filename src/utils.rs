@@ -118,3 +118,19 @@ pub fn create_progressbar(run_for_t: Option<f32>) -> Option<ProgressBar> {
         None
     }
 }
+
+/// Get the current timestamp in microseconds
+pub fn timestamp() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Error getting current time")
+        .as_micros()
+}
+/// Convert microseconds to seconds
+pub fn micros_to_seconds(timespan: u128) -> f64 {
+    0.000_001 * timespan as f64
+}
+/// Convert seconds to microseconds
+pub fn seconds_to_micros(timespan: f64) -> u128 {
+    (1_000_000.0 * timespan).round() as u128
+}

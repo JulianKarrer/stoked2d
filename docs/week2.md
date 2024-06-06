@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Initialization and Boundary Handling
-permalink: /week2/
+permalink: /initialization/
 nav_order: 1
 ---
 <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>

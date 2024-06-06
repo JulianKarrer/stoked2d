@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Basic Adhesion
-permalink: /week3/
+permalink: /basic-adhesion/
 nav_order: 2
 ---
 <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
