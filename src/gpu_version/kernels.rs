@@ -6,7 +6,7 @@ use ocl::{
 use super::buffers::GpuBuffers;
 use crate::{
     sph::KERNEL_CUBIC_NORMALIZE, utils::next_multiple, BDY_MIN, BOUNDARY, GRAVITY, H,
-    HARD_BOUNDARY, INITIAL_DT, K, KERNEL_SUPPORT, LAMBDA, MAX_DT, NU, RHO_ZERO, VELOCITY_EPSILON,
+    HARD_BOUNDARY, K, KERNEL_SUPPORT, LAMBDA, MAX_DT, MIN_DT, NU, RHO_ZERO, VELOCITY_EPSILON,
     VIDEO_HEIGHT_WORLD, VIDEO_SIZE, WARP, WORKGROUP_SIZE,
 };
 use std::sync::atomic::Ordering::Relaxed;
@@ -272,7 +272,7 @@ impl Kernels {
             .arg(&b.vel_max)
             .arg(LAMBDA.load(Relaxed) as f32)
             .arg(MAX_DT.load(Relaxed) as f32)
-            .arg(INITIAL_DT.load(Relaxed) as f32)
+            .arg(MIN_DT.load(Relaxed) as f32)
             .arg(VELOCITY_EPSILON as f32)
             .arg(H as f32)
             .global_work_size(1)
@@ -347,7 +347,7 @@ impl Kernels {
             .set_arg(4, MAX_DT.load(Relaxed) as f32)
             .unwrap();
         self.reduce_min_vel_compute_dt.group[1]
-            .set_arg(5, INITIAL_DT.load(Relaxed) as f32)
+            .set_arg(5, MIN_DT.load(Relaxed) as f32)
             .unwrap();
     }
 

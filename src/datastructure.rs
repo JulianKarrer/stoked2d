@@ -102,11 +102,11 @@ impl Grid {
     pub fn update_grid(&mut self, pos: &[DVec2], gridsize: f64) {
         // instead of defining the grid from a fixed point or in a fixed rectangle, define it from the minimum
         // point of the bounding volume containing all points to allow potentially inifnite grids
-        self.min = pos
-            .par_iter()
-            .cloned()
-            .reduce(|| DVec2::MAX, |a, b| a.min(b))
-            - DVec2::ONE * gridsize * 2.;
+        let min = pos.par_iter().map(|p| [p.x, p.y]).reduce(
+            || [f64::MAX, f64::MAX],
+            |a, b| [a[0].min(b[0]), a[1].min(b[1])],
+        );
+        self.min = DVec2::new(min[0], min[1]) - DVec2::ONE * gridsize * 2.;
         // compute the cell index for each particle, creating a "handle" as defined above
         self.curve = GRID_CURVE.load(Relaxed);
         self.handles
@@ -213,7 +213,7 @@ impl Grid {
         self.query_index(i).iter().map(f).sum()
     }
 
-    /// Take an immutable closure and apply it to all boundary neighbours of the given particle index,
+    /// Take an immutable closure and apply it to all boundary neighbours of the given particle position,
     /// returning the sum of the results.
     pub fn sum_bdy<F, R>(&self, x_i: &DVec2, bdy: &Boundary, f: F) -> R
     where

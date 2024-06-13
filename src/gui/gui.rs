@@ -19,6 +19,7 @@ use speedy2d::{
     window::{self, WindowHelper},
     Graphics2D,
 };
+use strum::IntoEnumIterator;
 use utils::{micros_to_seconds, seconds_to_micros, timestamp};
 
 use self::utils::{get_timestamp, unzip_f64_2};
@@ -195,7 +196,8 @@ const ICON_ALPHA: [u8; 1024] = [
 
 pub fn draw_particles(
     graphics: &mut Graphics2D,
-    bdy: &Vec<[f64; 2]>,
+    bdy: &[[f64; 2]],
+    bdy_m: &[f64],
     timestep: &HistoryTimestep,
     size: (f32, f32),
 ) {
@@ -301,8 +303,14 @@ pub fn draw_particles(
     }
     // draw all boundary particles
     if USE_GPU_BOUNDARY {
-        let boundary_colour = Color::from_rgba(1.0, 1.0, 1.0, 0.5);
-        bdy.iter().for_each(|p| {
+        let rho_0 = RHO_ZERO.load(Relaxed);
+        bdy.iter().zip(bdy_m).for_each(|(p, m)| {
+            let min = 0.0;
+            let max = 1.0;
+            let c = ((m / (rho_0 * H * H)).min(max) - min) / (max - min);
+            let colour = gradient.at((c * 2.0 - 1.0) * gradient_flipper * 0.5 + 0.5);
+            let boundary_colour =
+                Color::from_rgba(colour.r as f32, colour.g as f32, colour.b as f32, 0.5);
             graphics.draw_circle(
                 camera_transform(&p, &off, z, w, h),
                 0.5 * z * H as f32,
@@ -394,6 +402,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
             draw_particles(
                 graphics,
                 &hist.bdy,
+                &hist.bdy_m,
                 history_timestep,
                 (
                     WINDOW_SIZE[0].load(Relaxed) as f32,
@@ -412,14 +421,16 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         let mut pressure_eq: PressureEquation = PRESSURE_EQ.load(Relaxed);
         let mut omega_jacobi: f64 = OMEGA_JACOBI.load(Relaxed);
         let mut jacobi_min_iter: usize = JACOBI_MIN_ITER.load(Relaxed);
+        let mut jacobi_max_iter: usize = JACOBI_MAX_ITER.load(Relaxed);
         let mut solver: Solver = SOLVER.load(Relaxed);
         let mut max_delta_rho: f64 = MAX_RHO_DEVIATION.load(Relaxed);
         let mut lambda: f64 = LAMBDA.load(Relaxed);
         let mut fixed_dt: f64 = FIXED_DT.load(Relaxed);
         let mut use_fixed_dt: bool = USE_FIXED_DT.load(Relaxed);
         let mut max_dt: f64 = MAX_DT.load(Relaxed);
-        let mut init_dt: f64 = INITIAL_DT.load(Relaxed);
+        let mut min_dt: f64 = MIN_DT.load(Relaxed);
         let mut resort: u32 = { *RESORT_ATTRIBUTES_EVERY_N.read() };
+        let mut resort_flag: bool = { *RESORT_ATTRIBUTES.read() };
         let mut curve: GridCurve = GRID_CURVE.load(Relaxed);
         let mut feature: VisualizedFeature = VISUALIZED_FEATURE.load(Relaxed);
         let mut colours: ColourScheme = COLOUR_SCHEME.load(Relaxed);
@@ -445,12 +456,12 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                     });
                     ui.horizontal(|ui| {
                         ui.add(
-                            egui::DragValue::new(&mut init_dt)
+                            egui::DragValue::new(&mut min_dt)
                                 .speed(0.00001)
                                 .max_decimals(5)
-                                .clamp_range(0.00001..=f64::MAX),
+                                .clamp_range(0.0..=f64::MAX),
                         );
-                        ui.label("Initial Δt");
+                        ui.label("Minimum Δt");
                     });
                     ui.horizontal(|ui| {
                         ui.add(
@@ -467,7 +478,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                             egui::DragValue::new(&mut fixed_dt)
                                 .speed(0.0001)
                                 .max_decimals(4)
-                                .clamp_range(0.0..=f64::MAX),
+                                .clamp_range(0.0001..=f64::MAX),
                         );
                         ui.label("Fixed Δt");
                     });
@@ -564,14 +575,13 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                     egui::ComboBox::from_label("Solver")
                         .selected_text(format!("{:?}", solver))
                         .show_ui(ui, |ui: &mut Ui| {
-                            ui.selectable_value(&mut solver, Solver::SESPH, "SESPH");
-                            ui.selectable_value(
-                                &mut solver,
-                                Solver::SplittingSESPH,
-                                "Splitting SESPH",
-                            );
-                            ui.selectable_value(&mut solver, Solver::IterSESPH, "Iterative SESPH");
-                            ui.selectable_value(&mut solver, Solver::IISPH, "IISPH");
+                            for selectable in Solver::iter() {
+                                ui.selectable_value(
+                                    &mut solver,
+                                    selectable,
+                                    format!("{:?}", selectable),
+                                );
+                            }
                         });
                     ui.horizontal(|ui| {
                         ui.add(
@@ -599,12 +609,32 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         );
                         ui.label("Minimum Jacobi Iterations");
                     });
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut jacobi_max_iter)
+                                .speed(1)
+                                .clamp_range(1..=usize::MAX),
+                        );
+                        ui.label("maximum Jacobi Iterations");
+                    });
+                    ui.horizontal(|ui| {
+                        let mut eps_jacobi = JACOBI_DENOMINATOR_EPSILON.load(Relaxed);
+                        ui.add(
+                            egui::DragValue::new(&mut eps_jacobi)
+                                .speed(1e-8)
+                                .max_decimals(8)
+                                .clamp_range(0.0..=1.0),
+                        );
+                        ui.label("Jacobi diagonal epsilon");
+                        JACOBI_DENOMINATOR_EPSILON.store(eps_jacobi, Relaxed);
+                    });
                     // adjust datastructure settings
                     ui.label(RichText::new("Datastructure").font(header.clone()));
                     ui.horizontal(|ui| {
                         ui.add(egui::DragValue::new(&mut resort).speed(1));
                         ui.label("Resort every N");
                     });
+                    ui.checkbox(&mut resort_flag, "Resort?");
                     egui::ComboBox::from_label("Space filling curve")
                         .selected_text(format!("{:?}", curve))
                         .show_ui(ui, |ui| {
@@ -649,7 +679,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                             let avg_den_plot: PlotPoints =
                                 { (*HISTORY).read().plot_density.clone().into() };
                             Plot::new("plot")
-                                .view_aspect(2.0)
+                                .view_aspect(16. / 9.)
                                 .show(ui, |plot_ui| plot_ui.line(Line::new(avg_den_plot)));
                         });
                     CollapsingHeader::new("Kinetic Energy Plot")
@@ -658,8 +688,17 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                             let kinetic_plot: PlotPoints =
                                 { (*HISTORY).read().plot_kinetic.clone().into() };
                             Plot::new("plot")
-                                .view_aspect(2.0)
+                                .view_aspect(16. / 9.)
                                 .show(ui, |plot_ui| plot_ui.line(Line::new(kinetic_plot)));
+                        });
+                    CollapsingHeader::new("Iterations Count")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            let iters_plot: PlotPoints =
+                                { (*HISTORY).read().plot_iters.clone().into() };
+                            Plot::new("plot")
+                                .view_aspect(16. / 9.)
+                                .show(ui, |plot_ui| plot_ui.line(Line::new(iters_plot)));
                         });
                     if ui.button("Export Plots").clicked() {
                         let mut plot = standard_2d_plot();
@@ -667,7 +706,9 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         plot.add_trace(Scatter::new(xs, ys).name("Average Density Deviation"));
                         let (xs, ys) = unzip_f64_2(&(*HISTORY).read().plot_kinetic);
                         plot.add_trace(Scatter::new(xs, ys).name("Normalized Hamiltonian"));
-                        plot.write_html(format!("analysis/plot_den_ham_{}.html", get_timestamp()));
+                        let (xs, ys) = unzip_f64_2(&(*HISTORY).read().plot_iters);
+                        plot.add_trace(Scatter::new(xs, ys).name("Jacobi Iteration Count"));
+                        plot.write_html(format!("analysis/plot_graphs_{}.html", get_timestamp()));
                     }
 
                     // SAVE VIDEO
@@ -679,7 +720,13 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         println!("rendering in {}x{}", x, y);
                         let mut vid = VideoHandler::new(x, y);
                         for time_step in &hist.steps {
-                            draw_particles(graphics, &hist.bdy, time_step, (x as f32, y as f32));
+                            draw_particles(
+                                graphics,
+                                &hist.bdy,
+                                &hist.bdy_m,
+                                time_step,
+                                (x as f32, y as f32),
+                            );
                             let cap = graphics.capture(speedy2d::image::ImageDataType::RGB);
                             vid.add_frame(cap.data());
                         }
@@ -704,7 +751,13 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
                         let mut frame_number = 0;
                         while current_video_t <= max_video_t {
                             let time_step = get_next_timestep(current_video_t, &hist);
-                            draw_particles(graphics, &hist.bdy, time_step, (x as f32, y as f32));
+                            draw_particles(
+                                graphics,
+                                &hist.bdy,
+                                &hist.bdy_m,
+                                time_step,
+                                (x as f32, y as f32),
+                            );
                             let cap = graphics.capture(speedy2d::image::ImageDataType::RGB);
                             VideoHandler::add_raw_frame(
                                 cap.data(),
@@ -847,7 +900,7 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         // write back potentially modified atomics
         LAMBDA.store(lambda, Relaxed);
         MAX_DT.store(max_dt, Relaxed);
-        INITIAL_DT.store(init_dt, Relaxed);
+        MIN_DT.store(min_dt, Relaxed);
         FIXED_DT.store(fixed_dt, Relaxed);
         USE_FIXED_DT.store(use_fixed_dt, Relaxed);
         GRAVITY.store(gravity, Relaxed);
@@ -858,13 +911,17 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
         PRESSURE_EQ.store(pressure_eq, Relaxed);
         SOLVER.store(solver, Relaxed);
         JACOBI_MIN_ITER.store(jacobi_min_iter, Relaxed);
+        JACOBI_MAX_ITER.store(jacobi_max_iter, Relaxed);
         OMEGA_JACOBI.store(omega_jacobi, Relaxed);
         MAX_RHO_DEVIATION.store(max_delta_rho, Relaxed);
-        if restart != *REQUEST_RESTART.read() {
+        if restart != { *REQUEST_RESTART.read() } {
             *REQUEST_RESTART.write() = restart
         };
-        if resort != *RESORT_ATTRIBUTES_EVERY_N.read() {
+        if resort != { *RESORT_ATTRIBUTES_EVERY_N.read() } {
             *RESORT_ATTRIBUTES_EVERY_N.write() = resort
+        };
+        if resort_flag != { *RESORT_ATTRIBUTES.read() } {
+            *RESORT_ATTRIBUTES.write() = resort_flag
         };
         GRID_CURVE.store(curve, Relaxed);
         VISUALIZED_FEATURE.store(feature, Relaxed);

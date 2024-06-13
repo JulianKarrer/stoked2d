@@ -2,8 +2,8 @@ use crate::{
     boundary::Boundary,
     datastructure::Grid,
     simulation::update_densities,
-    utils::{is_black, is_blue, linspace},
-    FLUID, GRAVITY, H, INITIAL_JITTER, KERNEL_SUPPORT, RHO_ZERO, SPH_KERNELS, V_ZERO,
+    utils::{average_val, is_black, is_blue, linspace},
+    FLUID, GRAVITY, H, INITIAL_JITTER, KERNEL_SUPPORT, RHO_ZERO, SCALE, SPH_KERNELS, V_ZERO,
 };
 use glam::DVec2;
 use image::open;
@@ -28,6 +28,7 @@ pub struct Attributes {
     pub d_ii: Vec<DVec2>,
     pub d_ij_p_j: Vec<DVec2>,
     pub prs_swap: Vec<f64>,
+    pub source: Vec<f64>,
     // structures held that might be updated every timestep
     pub grid: Grid,
 }
@@ -43,10 +44,11 @@ impl Attributes {
         let den: Vec<f64> = vec![rho_0; pos.len()];
         // buffers for IISPH
         let a_ii = vec![0.0; pos.len()];
-        let source = vec![0.0; pos.len()];
+        let den_adv = vec![0.0; pos.len()];
         let d_ii = vec![DVec2::ZERO; pos.len()];
         let sum_d_ij_p_j = vec![DVec2::ZERO; pos.len()];
         let prs_swap: Vec<f64> = vec![0.0; pos.len()];
+        let source = vec![0.0; pos.len()];
         // create an acceleration datastructure for the positions
         let mut grid = Grid::new(pos.len());
         grid.update_grid(&pos, KERNEL_SUPPORT);
@@ -57,12 +59,14 @@ impl Attributes {
         let m_0 = rho_0 * V_ZERO;
         let mut mas: Vec<f64> = vec![m_0; pos.len()];
 
-        for _ in 0..100 {
+        for _ in 0..500 {
             update_densities(&pos, &mut den_measured, &mas, &grid, bdy, &knl);
             mas.par_iter_mut()
                 .zip(&den_measured)
                 .for_each(|(m, rho_i)| *m = 0.5 * (*m) + 0.5 * ((*m) * rho_0 / rho_i));
         }
+
+        println!("average mass/m_0: {}", average_val(&mas) / m_0);
 
         let mut res = Self {
             pos,
@@ -75,8 +79,9 @@ impl Attributes {
             a_ii,
             d_ii,
             d_ij_p_j: sum_d_ij_p_j,
-            den_adv: source,
+            den_adv,
             prs_swap,
+            source,
         };
         // immediately resort the attributes that are stored between timesteps to be aligned
         // in memory with the space-filling curve used in the grid
@@ -122,8 +127,8 @@ impl Attributes {
     pub fn from_image(path: &str, bdy: &Boundary) -> Self {
         let rgba = open(path).unwrap().into_rgba8();
         let (xsize, ysize) = rgba.dimensions();
-        let x_half = (xsize as f64) * 0.01 / 2.;
-        let y_half = (ysize as f64) * 0.01 / 2.;
+        let x_half = (xsize as f64) * SCALE / 2.;
+        let y_half = (ysize as f64) * SCALE / 2.;
         let jitter = INITIAL_JITTER.load(Relaxed);
 
         let y_num = ((2. * y_half) / H) as usize;
@@ -132,9 +137,9 @@ impl Attributes {
             .enumerate()
             .flat_map(|(y_index, y)| {
                 let hex_offset = if y_index % 2 == 0 {
-                    0.25 * H
+                    0.0 // 0.25 * H
                 } else {
-                    -0.25 * H
+                    0.0 // -0.25 * H
                 };
                 linspace(-x_half, x_half, ((2. * x_half) / H) as usize)
                     .iter()
@@ -144,28 +149,26 @@ impl Attributes {
                             SmallRng::seed_from_u64((x_index * y_num + y_index) as u64);
                         // if the current pixel position is in bounds
                         if let Some(pixel) = rgba.get_pixel_checked(
-                            ((x + x_half) / 0.01) as u32,
-                            ((y + y_half) / 0.01) as u32,
+                            ((x + x_half) / SCALE) as u32,
+                            ((y + y_half) / SCALE) as u32,
                         ) {
                             // and if the current pixel is blue
                             let [r, g, b, a] = pixel.0;
                             if is_blue(r, g, b, a) && (!is_black(r, g, b, a)) {
-                                let new_pos = DVec2::new(x + hex_offset, -y);
+                                let new_pos = DVec2::new(x + hex_offset, -y)
+                                    + DVec2::new(
+                                        small_rng.gen_range(-jitter..=jitter),
+                                        small_rng.gen_range(-jitter..=jitter),
+                                    );
                                 // only place fluid where there is no boundary
                                 if bdy
                                     .grid
                                     .query_radius(&new_pos, &bdy.pos, KERNEL_SUPPORT)
                                     .iter()
-                                    .all(|bdy_j| bdy.pos[*bdy_j].distance(new_pos) >= H * 0.5)
+                                    .all(|bdy_j| bdy.pos[*bdy_j].distance(new_pos) >= H)
                                 {
                                     // place a particle at the position
-                                    return Some(
-                                        new_pos
-                                            + DVec2::new(
-                                                small_rng.gen_range(-jitter..=jitter),
-                                                small_rng.gen_range(-jitter..=jitter),
-                                            ),
-                                    );
+                                    return Some(new_pos);
                                 }
                             }
                         }

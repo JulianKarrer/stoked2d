@@ -3,7 +3,8 @@ use crate::{
     gui::gui::ZOOM,
     sph::KernelType,
     utils::{is_black, linspace},
-    BOUNDARY, GAMMA_1, GAMMA_2, H, HARD_BOUNDARY, KERNEL_SUPPORT, RHO_ZERO, WINDOW_SIZE,
+    BDY_SAMPLING_DENSITY, BOUNDARY, GAMMA_1, GAMMA_2, H, HARD_BOUNDARY, INITIAL_JITTER,
+    KERNEL_SUPPORT, RHO_ZERO, SCALE, WINDOW_SIZE,
 };
 use glam::DVec2;
 use image::open;
@@ -88,13 +89,6 @@ impl Boundary {
         );
         // return the result
         res
-        // ;
-        // Self {
-        //     mas: vec![],
-        //     vel: vec![],
-        //     pos: vec![],
-        //     grid: Grid::new(0),
-        // }
     }
 
     /// Creates a new set of boundary particles in the pos Vec, with an accompanying
@@ -134,9 +128,10 @@ impl Boundary {
     pub fn from_image(path: &str, spacing: f64, knl: &KernelType) -> Self {
         let rgba = open(path).unwrap().into_rgba8();
         let (xsize, ysize) = rgba.dimensions();
-        let x_half = (xsize as f64) * 0.01 / 2.;
-        let y_half = (ysize as f64) * 0.01 / 2.;
+        let x_half = (xsize as f64) * SCALE / 2.;
+        let y_half = (ysize as f64) * SCALE / 2.;
 
+        let jitter = INITIAL_JITTER.load(Relaxed) / H * BDY_SAMPLING_DENSITY;
         let y_num = ((2. * y_half) / spacing) as usize;
         let pos: Vec<DVec2> = linspace(-y_half, y_half, y_num)
             .par_iter()
@@ -144,15 +139,25 @@ impl Boundary {
                 linspace(-x_half, x_half, ((2. * x_half) / spacing) as usize)
                     .iter()
                     .filter_map(|x| {
+                        let mut small_rng = SmallRng::seed_from_u64(
+                            ((((x + x_half) / SCALE) as u64) << 32)
+                                | (((y + y_half) / SCALE) as u64),
+                        );
                         // if the current pixel position is in bounds
                         if let Some(pixel) = rgba.get_pixel_checked(
-                            ((x + x_half) / 0.01) as u32,
-                            ((y + y_half) / 0.01) as u32,
+                            ((x + x_half) / SCALE) as u32,
+                            ((y + y_half) / SCALE) as u32,
                         ) {
                             // and if the current pixel is blue
                             let [r, g, b, a] = pixel.0;
                             if is_black(r, g, b, a) {
-                                return Some(DVec2::new(*x, -y));
+                                return Some(
+                                    DVec2::new(*x, -y)
+                                        + DVec2::new(
+                                            small_rng.gen_range(-jitter..=jitter),
+                                            small_rng.gen_range(-jitter..=jitter),
+                                        ),
+                                );
                             }
                         }
                         None
@@ -160,20 +165,6 @@ impl Boundary {
                     .collect::<Vec<DVec2>>()
             })
             .collect();
-        // let pos: Vec<DVec2> = rgba
-        //     .pixels()
-        //     .enumerate()
-        //     .par_bridge()
-        //     .filter(|(_i, p)| {
-        //         let [r, g, b, a] = p.0;
-        //         is_black(r, g, b, a)
-        //     })
-        //     .map(|(i, _p)| {
-        //         let x = ((i as u32) % xsize) as f64 * spacing;
-        //         let y = ((i as u32) / xsize) as f64 * spacing;
-        //         DVec2::new(x - x_half, -(y - y_half))
-        //     })
-        //     .collect();
         Self::boundary_from_positions(pos, knl)
     }
 

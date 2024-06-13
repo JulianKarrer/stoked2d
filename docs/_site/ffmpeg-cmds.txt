@@ -26,7 +26,7 @@ ffmpeg -i out.webm -an -vf scale="736:-1, fps=30" -c:v libvpx-vp9 -b:v 0 -crf 30
 ffmpeg -framerate 30 -pattern_type glob -i '*.jpg' -an -preset veryslow -pix_fmt yuv420p iisph-poiseuille.webm 
 
 
-ffmpeg -i out.webm -t 4 -vf "crop=in_w/3:in_h" -an  -preset veryslow  col_issesph.webm -y
+ffmpeg -framerate 30 -pattern_type glob -i '*.jpg' -an -t 1 -vf "crop=in_w/3:in_h" -an  -preset veryslow  col_2013.webm -y
 ffmpeg -i out.webm -c:v librav1e -qp 120 -speed 3 low_nu_highres.mp4 -y
 
 
@@ -38,14 +38,14 @@ ffmpeg -framerate 60 -pattern_type glob -i '*.jpg' -movflags faststart -profile:
 
 
 MAXIMUM COMPRESSION
-ffmpeg -y -i iisph-dambreak-highres.webm \
+ffmpeg -y -i col_2013.webm \
 -c:v libvpx-vp9 -b:v 0 -crf 52 \
 -aq-mode 2 -an \
 -tile-columns 0 -tile-rows 0 \
 -frame-parallel 0 -cpu-used 8 \
 -auto-alt-ref 1 -lag-in-frames 25 -g 999 \
 -pass 1 -f webm -threads 8 \
-out.temp && ffmpeg -y -i iisph-dambreak-highres.webm \
+out.temp && ffmpeg -y -i col_2013.webm \
 -c:v libvpx-vp9 -b:v 0 -crf 52 \
 -aq-mode 2 -c:a libopus -b:a 12k \
 -tile-columns 2 -tile-rows 2 \

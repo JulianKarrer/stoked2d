@@ -40,8 +40,8 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 pub static WINDOW_SIZE: [AtomicU32; 2] = [AtomicU32::new(1280), AtomicU32::new(800)];
 static SIM_FPS: AtomicF64 = AtomicF64::new(60.0);
-const FPS_SMOOTING: f64 = 0.99;
-const VELOCITY_EPSILON: f64 = 0.00001;
+const FPS_SMOOTING: f64 = 0.90;
+const VELOCITY_EPSILON: f64 = 1e-10;
 
 // SIMULATION RELATED CONSTANTS AND ATOMICS
 lazy_static! {
@@ -69,9 +69,10 @@ lazy_static! {
         )
     ]));
     pub static ref HISTORY: Arc<RwLock<History>> = Arc::new(RwLock::new(History::default()));
-    pub static ref SOLVER: AtomicSolver = AtomicSolver::new(simulation::Solver::IISPH);
+    pub static ref SOLVER: AtomicSolver = AtomicSolver::new(simulation::Solver::Iisph2013);
     static ref SPH_KERNELS: Arc<RwLock<SphKernel>> = Arc::new(RwLock::new(SphKernel::default()));
     static ref RESORT_ATTRIBUTES_EVERY_N: Arc<RwLock<u32>> = Arc::new(RwLock::new(4));
+    static ref RESORT_ATTRIBUTES: Arc<RwLock<bool>> = Arc::new(RwLock::new(true));
     static ref BDY_MIN: Float2 = HARD_BOUNDARY.read()[0]
         - Float2::new(
             (BOUNDARY_LAYER_COUNT + 20) as f32 * H as f32,
@@ -83,12 +84,13 @@ lazy_static! {
 /// The gravitational constant
 static GRAVITY: AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-pub const H: f64 = 0.01;
+pub const H: f64 = 0.02;
+pub const SCALE: f64 = 0.01;
 pub static INITIAL_JITTER: AtomicF64 = AtomicF64::new(0.01 * H);
 // boundary handling
-pub static GAMMA_1: AtomicF64 = AtomicF64::new(1.);
-pub static GAMMA_2: AtomicF64 = AtomicF64::new(1.);
-const BDY_SAMPLING_DENSITY: f64 = 0.5 * H;
+pub static GAMMA_1: AtomicF64 = AtomicF64::new(1.0);
+pub static GAMMA_2: AtomicF64 = AtomicF64::new(0.5);
+const BDY_SAMPLING_DENSITY: f64 = H * 0.49735681;
 // gpu boundary
 const BOUNDARY_LAYER_COUNT: usize = 1; // TODO REMOVE
 const USE_GPU_BOUNDARY: bool = true;
@@ -100,9 +102,9 @@ pub static NU_2: AtomicF64 = AtomicF64::new(0.020);
 pub static K: AtomicF64 = AtomicF64::new(500.);
 
 /// The factor of the maximum size of a time step taken each iteration
-pub static LAMBDA: AtomicF64 = AtomicF64::new(0.5);
+pub static LAMBDA: AtomicF64 = AtomicF64::new(0.4);
 static MAX_DT: AtomicF64 = AtomicF64::new(0.001);
-static INITIAL_DT: AtomicF64 = AtomicF64::new(0.0001);
+static MIN_DT: AtomicF64 = AtomicF64::new(0.0001);
 pub static FIXED_DT: AtomicF64 = AtomicF64::new(0.001);
 pub static USE_FIXED_DT: AtomicBool = AtomicBool::new(false);
 /// Rest density of the fluid
@@ -118,8 +120,10 @@ static COMPUTE_KINETIC: AtomicBool = AtomicBool::new(true);
 // iisph settings
 // Jacobi solver relaxation constant
 static OMEGA_JACOBI: AtomicF64 = AtomicF64::new(0.5);
-static JACOBI_MIN_ITER: AtomicUsize = AtomicUsize::new(2);
-const JACOBI_DENOMINATOR_EPSILON: f64 = 1e-9;
+static JACOBI_MIN_ITER: AtomicUsize = AtomicUsize::new(5);
+static JACOBI_MAX_ITER: AtomicUsize = AtomicUsize::new(300);
+static JACOBI_DENOMINATOR_EPSILON: AtomicF64 = AtomicF64::new(1e-6);
+static JACOBI_LAST_ITER: AtomicUsize = AtomicUsize::new(0);
 
 // constants that are consequences of other constants or the dimensionality
 const DIMENSIONS: f64 = 2.;
@@ -137,6 +141,5 @@ const WORKGROUP_SIZE: usize = 256;
 const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
 pub const HISTORY_UPDATE_HZ: usize = 60;
-pub const HISTORY_FRAME_TIME: f32 = 1. / (HISTORY_UPDATE_HZ as f32);
-// pub const HISTORY_FRAME_TIME: f32 = 0.0;
-// const FRAME_TIME: f32 = 0.0;
+// pub const HISTORY_FRAME_TIME: f32 = 1. / (HISTORY_UPDATE_HZ as f32);
+pub const HISTORY_FRAME_TIME: f32 = 0.0;

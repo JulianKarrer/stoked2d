@@ -1,5 +1,5 @@
 use crate::{
-    utils::next_multiple, BOUNDARY, BOUNDARY_LAYER_COUNT, FLUID, H, INITIAL_DT, KERNEL_SUPPORT,
+    utils::next_multiple, BOUNDARY, BOUNDARY_LAYER_COUNT, FLUID, H, KERNEL_SUPPORT, MIN_DT,
     VIDEO_SIZE, WARP, WORKGROUP_SIZE,
 };
 use ocl::{
@@ -60,7 +60,7 @@ impl GpuBuffers {
                 .queue(pro_que.queue().clone())
                 .flags(MemFlags::new().read_write())
                 .len(1)
-                .fill_val(Float::new(INITIAL_DT.load(Relaxed) as f32))
+                .fill_val(Float::new(MIN_DT.load(Relaxed) as f32))
                 .build()
                 .unwrap(),
             current_t: Buffer::builder()

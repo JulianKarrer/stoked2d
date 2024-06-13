@@ -21,6 +21,15 @@ pub fn average_val(arr: &[f64]) -> f64 {
     arr.par_iter().sum::<f64>() / arr.len() as f64
 }
 
+/// Compute the maximum norm of a slice of values
+pub fn max_length(values: &[DVec2]) -> f64 {
+    values
+        .par_iter()
+        .map(|elem| elem.length())
+        .reduce_with(|a, b| a.max(b))
+        .unwrap()
+}
+
 /// Get the current second of the unix epoch.
 pub fn get_timestamp() -> u64 {
     SystemTime::now()
@@ -37,8 +46,8 @@ pub fn unzip_f64_2(values: &[[f64; 2]]) -> (Vec<f64>, Vec<f64>) {
 /// Give a random 'DVec2' within a given square range $[-range;range]^2$
 pub fn random_vec2(range: f64) -> DVec2 {
     DVec2::new(
-        thread_rng().gen_range(-range..range),
-        thread_rng().gen_range(-range..range),
+        thread_rng().gen_range(-range..=range),
+        thread_rng().gen_range(-range..=range),
     )
 }
 
