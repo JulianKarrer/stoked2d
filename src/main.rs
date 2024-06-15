@@ -22,10 +22,12 @@ fn main() {
         if cfg!(feature = "gpu") {
             while gpu_version::gpu::run(None) {}
         } else {
-            while simulation::run(None, "scenes/setting-pdrop-laminar.png") {}
-            // while simulation::run(None, "scenes/setting-dambreak.png") {}
-            // while simulation::run(None, "scenes/setting_column.png") {}
-            // while simulation::run(None, "scenes/setting_column_small.png") {}
+            // while simulation::run(None, "scenes/poiseuille.png") {}
+            // while simulation::run(None, "scenes/dambreak.png") {}
+            // while simulation::run(None, "scenes/column.png") {}
+            // while simulation::run(None, "scenes/column_small.png") {}
+            // while simulation::run(None, "scenes/drop_in_circle.png") {}
+            while simulation::run(None, "scenes/turbo.png") {}
         }
     });
     window.run_loop(egui_speedy2d::WindowWrapper::new(StokedWindowHandler {}));

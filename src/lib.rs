@@ -84,11 +84,11 @@ lazy_static! {
 /// The gravitational constant
 static GRAVITY: AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-pub const H: f64 = 0.02;
+pub const H: f64 = 0.01206;
 pub const SCALE: f64 = 0.01;
 pub static INITIAL_JITTER: AtomicF64 = AtomicF64::new(0.01 * H);
 // boundary handling
-pub static GAMMA_1: AtomicF64 = AtomicF64::new(1.0);
+pub static GAMMA_1: AtomicF64 = AtomicF64::new(0.8);
 pub static GAMMA_2: AtomicF64 = AtomicF64::new(0.5);
 const BDY_SAMPLING_DENSITY: f64 = H * 0.49735681;
 // gpu boundary
@@ -140,6 +140,6 @@ const WORKGROUP_SIZE: usize = 256;
 // video settings
 const VIDEO_SIZE: (usize, usize) = (1280, 800);
 const VIDEO_HEIGHT_WORLD: f32 = 10.1f32;
-pub const HISTORY_UPDATE_HZ: usize = 60;
-// pub const HISTORY_FRAME_TIME: f32 = 1. / (HISTORY_UPDATE_HZ as f32);
-pub const HISTORY_FRAME_TIME: f32 = 0.0;
+pub const HISTORY_UPDATE_HZ: usize = 155;
+pub const HISTORY_FRAME_TIME: f32 = 1. / (HISTORY_UPDATE_HZ as f32);
+// pub const HISTORY_FRAME_TIME: f32 = 0.0;

@@ -43,6 +43,8 @@ pub static VISUALIZED_FEATURE: AtomicVisualizedFeature =
 pub static COLOUR_SCHEME: AtomicColourScheme = AtomicColourScheme::new(ColourScheme::Spectral);
 static VIDEO_EXPORT_FPS: AtomicF64 = AtomicF64::new(30.0);
 static DRAW_SPHERES: AtomicBool = AtomicBool::new(false);
+static SHOW_BDY_MASS: AtomicBool = AtomicBool::new(false);
+static LIGHT_MODE: AtomicBool = AtomicBool::new(false);
 
 lazy_static! {
   static ref DRAG_OFFSET:Arc<RwLock<speedy2d::dimen::Vec2>> = Arc::new(RwLock::new(speedy2d::dimen::Vec2::new(0.0, 0.0)));
@@ -201,8 +203,14 @@ pub fn draw_particles(
     timestep: &HistoryTimestep,
     size: (f32, f32),
 ) {
+    let light_mode = LIGHT_MODE.load(Relaxed);
+    let colour_bdy = SHOW_BDY_MASS.load(Relaxed);
     // clear screen
-    graphics.clear_screen(Color::BLACK);
+    graphics.clear_screen(if light_mode {
+        Color::WHITE
+    } else {
+        Color::BLACK
+    });
     let hbdy = { *HARD_BOUNDARY.read() };
 
     let (w, h) = size;
@@ -275,7 +283,11 @@ pub fn draw_particles(
                 camera_transform(&[hbdy[0][0] as f64, hbdy[0][1] as f64], &off, z, w, h),
                 camera_transform(&[hbdy[1][0] as f64, hbdy[1][0] as f64], &off, z, w, h),
             ),
-            Color::WHITE,
+            if light_mode {
+                Color::BLACK
+            } else {
+                Color::WHITE
+            },
         );
         graphics.draw_rectangle(
             Rectangle::new(
@@ -309,8 +321,15 @@ pub fn draw_particles(
             let max = 1.0;
             let c = ((m / (rho_0 * H * H)).min(max) - min) / (max - min);
             let colour = gradient.at((c * 2.0 - 1.0) * gradient_flipper * 0.5 + 0.5);
-            let boundary_colour =
-                Color::from_rgba(colour.r as f32, colour.g as f32, colour.b as f32, 0.5);
+            let boundary_colour = if colour_bdy {
+                Color::from_rgba(colour.r as f32, colour.g as f32, colour.b as f32, 0.5)
+            } else {
+                if light_mode {
+                    Color::BLACK
+                } else {
+                    Color::WHITE
+                }
+            };
             graphics.draw_circle(
                 camera_transform(&p, &off, z, w, h),
                 0.5 * z * H as f32,
@@ -779,12 +798,18 @@ impl egui_speedy2d::WindowHandler for StokedWindowHandler {
 
                     // RENDERING SETTINGS
                     ui.label(RichText::new("Rendering").font(header.clone()));
+
                     let mut draw_spheres = DRAW_SPHERES.load(Relaxed);
-                    let init_draw_spheres = draw_spheres;
                     ui.checkbox(&mut draw_spheres, "Draw Spheres");
-                    if draw_spheres != init_draw_spheres {
-                        DRAW_SPHERES.store(draw_spheres, Relaxed)
-                    }
+                    DRAW_SPHERES.store(draw_spheres, Relaxed);
+
+                    let mut colour_boundary = SHOW_BDY_MASS.load(Relaxed);
+                    ui.checkbox(&mut colour_boundary, "Show Bounday Mass");
+                    SHOW_BDY_MASS.store(colour_boundary, Relaxed);
+
+                    let mut light_mode = LIGHT_MODE.load(Relaxed);
+                    ui.checkbox(&mut light_mode, "Light Mode");
+                    LIGHT_MODE.store(light_mode, Relaxed);
                 })
             });
 

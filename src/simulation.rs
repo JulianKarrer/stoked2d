@@ -5,7 +5,7 @@ use rayon::prelude::{
 };
 use std::{fmt::Debug, time::Duration};
 use strum_macros::EnumIter;
-use utils::{create_progressbar, max_length, micros_to_seconds, timestamp};
+use utils::{average_val, create_progressbar, max_length, micros_to_seconds, timestamp};
 
 use self::{
     attributes::Attributes,
@@ -208,7 +208,14 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         &knls.viscosity,
     );
     let dt = update_dt(&state.vel, current_t);
-    for _ in 0..5 {
+    let mut rho_avg_err = 0.0;
+    let mut l = 0;
+    let rho_0 = RHO_ZERO.load(Relaxed);
+    while (rho_avg_err >= MAX_RHO_DEVIATION.load(Relaxed) * rho_0
+        || l < JACOBI_MIN_ITER.load(Relaxed))
+        && l < JACOBI_MAX_ITER.load(Relaxed)
+        && !{ *REQUEST_RESTART.read() }
+    {
         // predict velocities
         state
             .vel
@@ -226,6 +233,7 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
             bdy,
             &knls.density,
         );
+        rho_avg_err = (average_val(&state.den) - 1.0).max(0.0);
         update_pressures(&state.den, &mut state.prs);
         // apply pressure forces
         state
@@ -242,7 +250,9 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
             bdy,
             &knls.pressure,
         );
+        l += 1
     }
+    JACOBI_LAST_ITER.store(l, Relaxed);
     // perform a time step
     time_step_euler_cromer(&mut state.pos, &mut state.vel, &state.acc, dt);
     // update densities at the end to make sure the gui output matches reality
