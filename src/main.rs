@@ -27,7 +27,9 @@ fn main() {
             // while simulation::run(None, "scenes/column.png") {}
             // while simulation::run(None, "scenes/column_small.png") {}
             // while simulation::run(None, "scenes/drop_in_circle.png") {}
-            while simulation::run(None, "scenes/turbo.png") {}
+            // while simulation::run(None, "scenes/turbo.png") {}
+            // while simulation::run(None, "scenes/stokes.png") {}
+            while simulation::run(None, "scenes/mainpage.png") {}
         }
     });
     window.run_loop(egui_speedy2d::WindowWrapper::new(StokedWindowHandler {}));

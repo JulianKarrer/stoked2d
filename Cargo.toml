@@ -39,6 +39,7 @@ glam = { version = "0.25.0", features = ["fast-math"] }
 rand = { version = "0.8.5", features = ["small_rng"] }
 lindel = "0.1.1"
 voracious_radix_sort = { version = "1.2.0", features = ["voracious_multithread"] }
+kiddo = { version = "4.2.0"}
 
 # MEMORY AND GLOBALS
 lazy_static = "1.4.0"
@@ -53,6 +54,7 @@ rayon = "1.8.0"
 # GPU COMPUTING
 ocl = "0.19.6"
 
-# OTHER STUFF
+# ENUM HANDLING
 strum = "0.26.2"
 strum_macros = "0.26.2"
+enum_dispatch = "0.3.13"

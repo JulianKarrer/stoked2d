@@ -1,6 +1,6 @@
 use crate::{
     boundary::Boundary,
-    datastructure::Grid,
+    grid::{Accelerator, Datastructure},
     simulation::update_densities,
     utils::{average_val, is_black, is_blue, linspace},
     FLUID, GRAVITY, H, INITIAL_JITTER, KERNEL_SUPPORT, RHO_ZERO, SCALE, SPH_KERNELS, V_ZERO,
@@ -30,7 +30,7 @@ pub struct Attributes {
     pub prs_swap: Vec<f64>,
     pub source: Vec<f64>,
     // structures held that might be updated every timestep
-    pub grid: Grid,
+    pub ds: Datastructure,
 }
 
 impl Attributes {
@@ -50,8 +50,8 @@ impl Attributes {
         let prs_swap: Vec<f64> = vec![0.0; pos.len()];
         let source = vec![0.0; pos.len()];
         // create an acceleration datastructure for the positions
-        let mut grid = Grid::new(pos.len());
-        grid.update_grid(&pos, KERNEL_SUPPORT);
+        let mut ds = Datastructure::new(pos.len());
+        ds.update_grid(&pos, KERNEL_SUPPORT);
         // define the masses of each particle such that rest density is
         // achieved in the initial configuration
         let knl = { SPH_KERNELS.read().density };
@@ -60,7 +60,7 @@ impl Attributes {
         let mut mas: Vec<f64> = vec![m_0; pos.len()];
 
         for _ in 0..500 {
-            update_densities(&pos, &mut den_measured, &mas, &grid, bdy, &knl);
+            update_densities(&pos, &mut den_measured, &mas, &ds, bdy, &knl);
             mas.par_iter_mut()
                 .zip(&den_measured)
                 .for_each(|(m, rho_i)| *m = 0.5 * (*m) + 0.5 * ((*m) * rho_0 / rho_i));
@@ -75,7 +75,7 @@ impl Attributes {
             prs,
             den,
             mas,
-            grid,
+            ds,
             a_ii,
             d_ii,
             d_ij_p_j: sum_d_ij_p_j,
@@ -161,12 +161,12 @@ impl Attributes {
                                         small_rng.gen_range(-jitter..=jitter),
                                     );
                                 // only place fluid where there is no boundary
-                                if bdy
-                                    .grid
-                                    .query_radius(&new_pos, &bdy.pos, KERNEL_SUPPORT)
-                                    .iter()
-                                    .all(|bdy_j| bdy.pos[*bdy_j].distance(new_pos) >= H)
-                                {
+                                if bdy.ds.all_in_radius(
+                                    &new_pos,
+                                    &bdy.pos,
+                                    KERNEL_SUPPORT,
+                                    |bdy_j| bdy.pos[*bdy_j].distance(new_pos) >= H,
+                                ) {
                                     // place a particle at the position
                                     return Some(new_pos);
                                 }
@@ -186,7 +186,7 @@ impl Attributes {
     /// by employing the same sorting as the acceleration datastructure provides for neighbourhood queries.
     pub fn resort(&mut self) {
         // extract the order of the attributes according to cell-wise z-ordering
-        let order: Vec<usize> = self.grid.handles.par_iter().map(|h| h.index).collect();
+        let order: Vec<usize> = self.ds.resort_order();
         debug_assert!(order.len() == self.pos.len());
         // re-order relevant particle attributes in accordance with the order
         self.pos = order.par_iter().map(|i| self.pos[*i]).collect();

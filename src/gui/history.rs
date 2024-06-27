@@ -2,8 +2,12 @@ use ocl::prm::{Float, Float2};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
-    attributes::Attributes, boundary::Boundary, datastructure::Grid, gpu_version::gpu::len_float2,
-    utils::average_val, COMPUTE_KINETIC, JACOBI_LAST_ITER,
+    attributes::Attributes,
+    boundary::Boundary,
+    gpu_version::gpu::len_float2,
+    grid::{Accelerator, Datastructure},
+    utils::average_val,
+    COMPUTE_KINETIC, JACOBI_LAST_ITER,
 };
 
 /// Represents the features of the simulation that are stored for visualization at any given time step
@@ -60,7 +64,7 @@ impl History {
     pub fn reset_and_add(
         &mut self,
         state: &Attributes,
-        grid: &Grid,
+        grid: &Datastructure,
         bdy: &Boundary,
         current_t: f64,
     ) {
@@ -70,18 +74,18 @@ impl History {
         self.add(state, grid, current_t);
     }
 
-    pub fn add_step(&mut self, state: &Attributes, grid: &Grid, current_t: f64) {
+    pub fn add_step(&mut self, state: &Attributes, grid: &Datastructure, current_t: f64) {
         self.add(state, grid, current_t)
     }
 
-    fn add(&mut self, state: &Attributes, grid: &Grid, current_t: f64) {
+    fn add(&mut self, state: &Attributes, ds: &Datastructure, current_t: f64) {
         self.add_plot_data_only(state, current_t);
         self.steps.push(HistoryTimestep {
             pos: state.pos.par_iter().map(|p| p.to_array()).collect(),
             current_t,
             densities: state.den.clone(),
             velocities: state.vel.par_iter().map(|v| v.length()).collect(),
-            grid_handle_index: grid.handles.par_iter().map(|x| x.index as u32).collect(),
+            grid_handle_index: ds.resort_order().par_iter().map(|i| *i as u32).collect(),
         })
     }
 

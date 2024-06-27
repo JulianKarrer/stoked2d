@@ -1,5 +1,5 @@
 use crate::{
-    datastructure::Grid,
+    grid::{Accelerator, Datastructure},
     gui::gui::ZOOM,
     sph::KernelType,
     utils::{is_black, linspace},
@@ -21,7 +21,7 @@ pub struct Boundary {
     pub pos: Vec<DVec2>,
     pub vel: Vec<DVec2>,
     pub mas: Vec<f64>,
-    pub grid: Grid,
+    pub ds: Datastructure,
 }
 
 impl Boundary {
@@ -30,12 +30,12 @@ impl Boundary {
     fn boundary_from_positions(pos: Vec<DVec2>, knl: &KernelType) -> Self {
         let mut pos = pos;
         // create a grid with the boundary particles
-        let mut grid = Grid::new(pos.len());
-        grid.update_grid(&pos, KERNEL_SUPPORT);
+        let mut ds = Datastructure::new(pos.len());
+        ds.update_grid(&pos, KERNEL_SUPPORT);
         // immediately resort the positions vector for spatial locality
-        let order: Vec<usize> = grid.handles.par_iter().map(|h| h.index).collect();
+        let order: Vec<usize> = ds.resort_order().par_iter().map(|x| *x as usize).collect();
         pos = order.par_iter().map(|i| pos[*i]).collect();
-        grid.update_grid(&pos, KERNEL_SUPPORT);
+        ds.update_grid(&pos, KERNEL_SUPPORT);
 
         // compute gamma values
         // Boundary::calculate_gammas(knl);
@@ -45,7 +45,7 @@ impl Boundary {
             mas: vec![0.; pos.len()],
             vel: vec![DVec2::ZERO; pos.len()],
             pos,
-            grid,
+            ds,
         };
         res.update_masses(knl);
         // set the hard boundary
@@ -179,9 +179,7 @@ impl Boundary {
         self.mas = self
             .pos
             .par_iter()
-            .map(|x_i| {
-                rho_0 * gamma_1 / self.grid.sum_bdy(x_i, &self, |j| knl.w(x_i, &self.pos[*j]))
-            })
+            .map(|x_i| rho_0 * gamma_1 / self.ds.sum_bdy(x_i, &self, |j| knl.w(x_i, &self.pos[*j])))
             .collect();
     }
 

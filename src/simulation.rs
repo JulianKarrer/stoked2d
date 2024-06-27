@@ -1,5 +1,6 @@
-use crate::{datastructure::Grid, sph::KernelType, *};
+use crate::{sph::KernelType, *};
 use atomic_enum::atomic_enum;
+use grid::{Accelerator, Datastructure};
 use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
@@ -25,14 +26,14 @@ pub fn run(run_for_t: Option<f32>, path: &str) -> bool {
         &state.pos,
         &mut state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         &bdy,
         &KernelType::GaussSpline3,
     );
     {
         HISTORY
             .write()
-            .reset_and_add(&state, &state.grid, &bdy, current_t);
+            .reset_and_add(&state, &state.ds, &bdy, current_t);
     }
     // set up progress bar
     let progressbar = create_progressbar(run_for_t);
@@ -50,7 +51,7 @@ pub fn run(run_for_t: Option<f32>, path: &str) -> bool {
         } else {
             since_resort += 1;
         }
-        state.grid.update_grid(&state.pos, KERNEL_SUPPORT);
+        state.ds.update_grid(&state.pos, KERNEL_SUPPORT);
 
         // perform an update step using the selected fluid solver
         let kernels = { *SPH_KERNELS.read() };
@@ -61,7 +62,7 @@ pub fn run(run_for_t: Option<f32>, path: &str) -> bool {
 
         // write back the positions to the global buffer for visualization and update the FPS count
         update_fps(&mut last_update_time);
-        if current_t - last_gui_update_t > HISTORY_FRAME_TIME.into() {
+        if current_t - last_gui_update_t > HISTORY_FRAME_TIME as f64 {
             // update the progress bar
             if let Some(ref bar) = progressbar {
                 bar.inc(1);
@@ -70,7 +71,7 @@ pub fn run(run_for_t: Option<f32>, path: &str) -> bool {
             // update the gui
             last_gui_update_t = current_t;
             {
-                HISTORY.write().add_step(&state, &state.grid, current_t);
+                HISTORY.write().add_step(&state, &state.ds, current_t);
             }
         } else {
             {
@@ -98,7 +99,7 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls: &Sph
         &state.pos,
         &mut state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.density,
     );
@@ -109,7 +110,7 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls: &Sph
         &mut state.acc,
         &state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.viscosity,
     );
@@ -121,7 +122,7 @@ fn sesph(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls: &Sph
         &state.prs,
         &state.mas,
         &mut state.acc,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.pressure,
     );
@@ -141,7 +142,7 @@ fn sesph_splitting(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, 
         &mut state.acc,
         &state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.viscosity,
     );
@@ -159,7 +160,7 @@ fn sesph_splitting(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, 
         &state.pos,
         &mut state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.density,
     );
@@ -175,7 +176,7 @@ fn sesph_splitting(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, 
         &state.prs,
         &state.mas,
         &mut state.acc,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.pressure,
     );
@@ -186,7 +187,7 @@ fn sesph_splitting(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, 
         &state.pos,
         &mut state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.density,
     );
@@ -203,7 +204,7 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         &mut state.acc,
         &state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.viscosity,
     );
@@ -229,7 +230,7 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
             &state.pos,
             &mut state.den,
             &state.mas,
-            &state.grid,
+            &state.ds,
             bdy,
             &knls.density,
         );
@@ -246,7 +247,7 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
             &state.prs,
             &state.mas,
             &mut state.acc,
-            &state.grid,
+            &state.ds,
             bdy,
             &knls.pressure,
         );
@@ -260,7 +261,7 @@ fn sesph_iter(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         &state.pos,
         &mut state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.density,
     );
@@ -272,7 +273,7 @@ fn iisph_notes(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls
         &state.pos,
         &mut state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.density,
     );
@@ -283,7 +284,7 @@ fn iisph_notes(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls
         &mut state.acc,
         &state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.viscosity,
     );
@@ -305,10 +306,10 @@ fn iisph_notes(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls
             let v_i = state.vel[i];
             *source = rho_0
                 - rho_i
-                - dt * state.grid.sum_fluid(i, |j| {
+                - dt * state.ds.sum_fluid(i, |j| {
                     state.mas[*j] * (v_i - state.vel[*j]).dot(knl.dw(x_i, &state.pos[*j]))
                 })
-                - dt * bdy.grid.sum_bdy(x_i, bdy, |k| {
+                - dt * bdy.ds.sum_bdy(x_i, bdy, |k| {
                     bdy.mas[*k] * (v_i - bdy.vel[*k]).dot(knl.dw(x_i, &bdy.pos[*k]))
                 })
         });
@@ -317,20 +318,20 @@ fn iisph_notes(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls
     state.a_ii.par_iter_mut().enumerate().for_each(|(i, a_ii)| {
         let x_i = &state.pos[i];
         let m_i = state.mas[i];
-        let big_term = -state.grid.sum_fluid(i, |j| {
+        let big_term = -state.ds.sum_fluid(i, |j| {
             state.mas[*j] / rho_0.powi(2) * knl.dw(x_i, &state.pos[*j])
         }) - 2.0
             * gamma_2
-            * bdy.grid.sum_bdy(x_i, bdy, |k| {
+            * bdy.ds.sum_bdy(x_i, bdy, |k| {
                 bdy.mas[*k] / rho_0.powi(2) * knl.dw(x_i, &bdy.pos[*k])
             });
-        *a_ii = state.grid.sum_fluid(i, |j| {
+        *a_ii = state.ds.sum_fluid(i, |j| {
             state.mas[*j] * big_term.dot(knl.dw(x_i, &state.pos[*j]))
-        }) + state.grid.sum_fluid(i, |j| {
+        }) + state.ds.sum_fluid(i, |j| {
             state.mas[*j]
                 * (m_i / rho_0.powi(2) * knl.dw(&state.pos[*j], x_i))
                     .dot(knl.dw(x_i, &state.pos[*j]))
-        }) + bdy.grid.sum_bdy(x_i, bdy, |k| {
+        }) + bdy.ds.sum_bdy(x_i, bdy, |k| {
             bdy.mas[*k] * big_term.dot(knl.dw(x_i, &bdy.pos[*k]))
         })
     });
@@ -350,12 +351,12 @@ fn iisph_notes(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls
         state.acc.par_iter_mut().enumerate().for_each(|(i, acc_i)| {
             // compute pressure acceleration
             let x_i = &state.pos[i];
-            *acc_i = -state.grid.sum_fluid(i, |j| {
+            *acc_i = -state.ds.sum_fluid(i, |j| {
                 state.mas[*j]
                     * (state.prs[i] / rho_0.powi(2) + state.prs[*j] / rho_0.powi(2))
                     * knl.dw(x_i, &state.pos[*j])
             }) - gamma_2
-                * bdy.grid.sum_bdy(x_i, bdy, |k| {
+                * bdy.ds.sum_bdy(x_i, bdy, |k| {
                     bdy.mas[*k] * 2.0 * state.prs[i] / rho_0.powi(2) * knl.dw(x_i, &bdy.pos[*k])
                 });
         });
@@ -368,12 +369,12 @@ fn iisph_notes(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls
                 // compute divergence of velocity change dt*a due to pressure acc
                 let x_i = &state.pos[i];
                 let ap_i = dt.powi(2)
-                    * state.grid.sum_fluid(i, |j| {
+                    * state.ds.sum_fluid(i, |j| {
                         state.mas[*j]
                             * (state.acc[i] - state.acc[*j]).dot(knl.dw(x_i, &state.pos[*j]))
                     })
                     + dt.powi(2)
-                        * bdy.grid.sum_bdy(x_i, bdy, |k| {
+                        * bdy.ds.sum_bdy(x_i, bdy, |k| {
                             bdy.mas[*k] * state.acc[i].dot(knl.dw(x_i, &bdy.pos[*k]))
                         });
                 // update pressure if a_ii != 0
@@ -397,12 +398,12 @@ fn iisph_notes(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls
     state.acc.par_iter_mut().enumerate().for_each(|(i, acc_i)| {
         // compute pressure acceleration
         let x_i = &state.pos[i];
-        *acc_i = -state.grid.sum_fluid(i, |j| {
+        *acc_i = -state.ds.sum_fluid(i, |j| {
             state.mas[*j]
                 * (state.prs[i] / rho_0.powi(2) + state.prs[*j] / rho_0.powi(2))
                 * knl.dw(x_i, &state.pos[*j])
         }) - gamma_2
-            * bdy.grid.sum_bdy(x_i, bdy, |k| {
+            * bdy.ds.sum_bdy(x_i, bdy, |k| {
                 bdy.mas[*k] * 2.0 * state.prs[i] / rho_0.powi(2) * knl.dw(x_i, &bdy.pos[*k])
             });
     });
@@ -417,7 +418,7 @@ fn iisph_mine(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         &state.pos,
         &mut state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.density,
     );
@@ -428,7 +429,7 @@ fn iisph_mine(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         &mut state.acc,
         &state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.viscosity,
     );
@@ -450,10 +451,10 @@ fn iisph_mine(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
             let v_i = state.vel[i];
             *source = rho_0
                 - rho_i
-                - dt * state.grid.sum_fluid(i, |j| {
+                - dt * state.ds.sum_fluid(i, |j| {
                     state.mas[*j] * (v_i - state.vel[*j]).dot(knl.dw(x_i, &state.pos[*j]))
                 })
-                - dt * bdy.grid.sum_bdy(x_i, bdy, |k| {
+                - dt * bdy.ds.sum_bdy(x_i, bdy, |k| {
                     bdy.mas[*k] * (v_i - bdy.vel[*k]).dot(knl.dw(x_i, &bdy.pos[*k]))
                 })
         });
@@ -462,22 +463,22 @@ fn iisph_mine(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
     state.a_ii.par_iter_mut().enumerate().for_each(|(i, a_ii)| {
         let x_i = &state.pos[i];
         let m_i = state.mas[i];
-        let c_f = -state.grid.sum_fluid(i, |j| {
+        let c_f = -state.ds.sum_fluid(i, |j| {
             state.mas[*j] / state.den[i].powi(2) * knl.dw(x_i, &state.pos[*j])
         }) - 2.0
             * gamma_2
-            * bdy.grid.sum_bdy(x_i, bdy, |k| {
+            * bdy.ds.sum_bdy(x_i, bdy, |k| {
                 bdy.mas[*k] / state.den[i].powi(2) * knl.dw(x_i, &bdy.pos[*k])
             });
         *a_ii = state
-            .grid
+            .ds
             .sum_fluid(i, |j| state.mas[*j] * c_f.dot(knl.dw(x_i, &state.pos[*j])))
-            + state.grid.sum_fluid(i, |j| {
+            + state.ds.sum_fluid(i, |j| {
                 state.mas[*j]
                     * (m_i / state.den[i].powi(2) * knl.dw(&state.pos[*j], x_i))
                         .dot(knl.dw(x_i, &state.pos[*j]))
             })
-            + bdy.grid.sum_bdy(x_i, bdy, |k| {
+            + bdy.ds.sum_bdy(x_i, bdy, |k| {
                 bdy.mas[*k] * c_f.dot(knl.dw(x_i, &bdy.pos[*k]))
             })
     });
@@ -497,12 +498,12 @@ fn iisph_mine(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         state.acc.par_iter_mut().enumerate().for_each(|(i, acc_i)| {
             // compute pressure acceleration
             let x_i = &state.pos[i];
-            *acc_i = -state.grid.sum_fluid(i, |j| {
+            *acc_i = -state.ds.sum_fluid(i, |j| {
                 state.mas[*j]
                     * (state.prs[i] / state.den[i].powi(2) + state.prs[*j] / state.den[*j].powi(2))
                     * knl.dw(x_i, &state.pos[*j])
             }) - gamma_2
-                * bdy.grid.sum_bdy(x_i, bdy, |k| {
+                * bdy.ds.sum_bdy(x_i, bdy, |k| {
                     bdy.mas[*k] * 2.0 * state.prs[i] / state.den[i].powi(2)
                         * knl.dw(x_i, &bdy.pos[*k])
                 });
@@ -516,12 +517,12 @@ fn iisph_mine(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
                 // compute divergence of velocity change dt*a due to pressure acc
                 let x_i = &state.pos[i];
                 let ap_i = dt.powi(2)
-                    * state.grid.sum_fluid(i, |j| {
+                    * state.ds.sum_fluid(i, |j| {
                         state.mas[*j]
                             * (state.acc[i] - state.acc[*j]).dot(knl.dw(x_i, &state.pos[*j]))
                     })
                     + dt.powi(2)
-                        * bdy.grid.sum_bdy(x_i, bdy, |k| {
+                        * bdy.ds.sum_bdy(x_i, bdy, |k| {
                             bdy.mas[*k] * state.acc[i].dot(knl.dw(x_i, &bdy.pos[*k]))
                         });
                 // update pressure if a_ii != 0
@@ -545,12 +546,12 @@ fn iisph_mine(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
     state.acc.par_iter_mut().enumerate().for_each(|(i, acc_i)| {
         // compute pressure acceleration
         let x_i = &state.pos[i];
-        *acc_i = -state.grid.sum_fluid(i, |j| {
+        *acc_i = -state.ds.sum_fluid(i, |j| {
             state.mas[*j]
                 * (state.prs[i] / state.den[i].powi(2) + state.prs[*j] / state.den[*j].powi(2))
                 * knl.dw(x_i, &state.pos[*j])
         }) - gamma_2
-            * bdy.grid.sum_bdy(x_i, bdy, |k| {
+            * bdy.ds.sum_bdy(x_i, bdy, |k| {
                 bdy.mas[*k] * 2.0 * state.prs[i] / state.den[i].powi(2) * knl.dw(x_i, &bdy.pos[*k])
             });
     });
@@ -568,7 +569,7 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         &state.pos,
         &mut state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.density,
     );
@@ -579,7 +580,7 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         &mut state.acc,
         &state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.viscosity,
     );
@@ -590,9 +591,9 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
     // d_ii term
     state.d_ii.par_iter_mut().enumerate().for_each(|(i, d_ii)| {
         let one_over_rho_i_2 = 1.0 / state.den[i].powi(2);
-        *d_ii = -state.grid.sum_fluid(i, |j| {
+        *d_ii = -state.ds.sum_fluid(i, |j| {
             state.mas[*j] * one_over_rho_i_2 * knls.density.dw(&state.pos[i], &state.pos[*j])
-        }) - bdy.grid.sum_bdy(&state.pos[i], bdy, |k| {
+        }) - bdy.ds.sum_bdy(&state.pos[i], bdy, |k| {
             bdy.mas[*k] * one_over_rho_i_2 * knls.density.dw(&state.pos[i], &bdy.pos[*k])
         })
     });
@@ -604,12 +605,12 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         .enumerate()
         .for_each(|(i, rho_adv_i)| {
             *rho_adv_i = state.den[i]
-                + dt * state.grid.sum_fluid(i, |j| {
+                + dt * state.ds.sum_fluid(i, |j| {
                     state.mas[*j]
                         * (state.vel[i] - state.vel[*j])
                             .dot(knls.density.dw(&state.pos[i], &state.pos[*j]))
                 })
-                + dt * bdy.grid.sum_bdy(&state.pos[i], bdy, |k| {
+                + dt * bdy.ds.sum_bdy(&state.pos[i], bdy, |k| {
                     bdy.mas[*k]
                         * (state.vel[i] - bdy.vel[*k])
                             .dot(knls.density.dw(&state.pos[i], &bdy.pos[*k]))
@@ -620,11 +621,11 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
     state.a_ii.par_iter_mut().enumerate().for_each(|(i, a_ii)| {
         let m_i_over_rho_i_2 = state.mas[i] / state.den[i].powi(2);
         let d_ii = state.d_ii[i];
-        *a_ii = state.grid.sum_fluid(i, |j| {
+        *a_ii = state.ds.sum_fluid(i, |j| {
             let grad = knls.density.dw(&state.pos[i], &state.pos[*j]);
             let d_ji = grad * m_i_over_rho_i_2; // drop the minus by using W_ij instead of W_ji -> antisymmetry
             state.mas[*j] * (d_ii - d_ji).dot(grad)
-        }) + bdy.grid.sum_bdy(&state.pos[i], bdy, |k| {
+        }) + bdy.ds.sum_bdy(&state.pos[i], bdy, |k| {
             let grad = knls.density.dw(&state.pos[i], &bdy.pos[*k]);
             let d_ji = grad * m_i_over_rho_i_2;
             bdy.mas[*k] * (d_ii - d_ji).dot(grad)
@@ -651,7 +652,7 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
             .enumerate()
             .for_each(|(i, d_ij_p_j)| {
                 let x_i = state.pos[i];
-                *d_ij_p_j = -state.grid.sum_fluid(i, |j| {
+                *d_ij_p_j = -state.ds.sum_fluid(i, |j| {
                     state.mas[*j] / state.den[*j].powi(2)
                         * state.prs[*j]
                         * knls.pressure.dw(&x_i, &state.pos[*j])
@@ -669,7 +670,7 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
                 let x_i = &state.pos[i];
                 let d_ij_pj = state.d_ij_p_j[i];
                 let a_ii = state.a_ii[i];
-                let sum = state.grid.sum_fluid(i, |j| {
+                let sum = state.ds.sum_fluid(i, |j| {
                     let d_jk_p_k = state.d_ij_p_j[*j];
                     let grad = knls.pressure.dw(x_i, &state.pos[*j]);
                     let d_ji = grad * m_i_over_rho_i_2;
@@ -677,7 +678,7 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
                     state.mas[*j]
                         * (d_ij_pj - state.d_ii[*j] * state.prs[*j] - (d_jk_p_k - d_ji_p_i))
                             .dot(grad)
-                }) + bdy.grid.sum_bdy(x_i, bdy, |k| {
+                }) + bdy.ds.sum_bdy(x_i, bdy, |k| {
                     bdy.mas[*k] * d_ij_pj.dot(knls.pressure.dw(x_i, &bdy.pos[*k]))
                 });
                 let b = rho_0 - state.den_adv[i];
@@ -712,7 +713,7 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         &state.prs,
         &state.mas,
         &mut state.acc,
-        &state.grid,
+        &state.ds,
         &bdy,
         &knls.pressure,
     );
@@ -723,24 +724,24 @@ fn iisph_2013(state: &mut Attributes, current_t: &mut f64, bdy: &Boundary, knls:
         &state.pos,
         &mut state.den,
         &state.mas,
-        &state.grid,
+        &state.ds,
         bdy,
         &knls.density,
     );
 
-    // ASSERT DENSITY FINITE  AND != ZERO
-    state.den.par_iter().enumerate().for_each(|(i, den)| {
-        assert!(
-            den.is_normal() || den.is_subnormal(),
-            "is normal {}, i {}, neighbours {:?}, neighbours radius {:?} ",
-            den.is_normal(),
-            i,
-            state.grid.query_index(i),
-            state
-                .grid
-                .query_radius(&state.pos[i], &state.pos, KERNEL_SUPPORT),
-        )
-    })
+    // // ASSERT DENSITY FINITE  AND != ZERO
+    // state.den.par_iter().enumerate().for_each(|(i, den)| {
+    //     assert!(
+    //         den.is_normal() || den.is_subnormal(),
+    //         "is normal {}, i {}, neighbours {:?}, neighbours radius {:?} ",
+    //         den.is_normal(),
+    //         i,
+    //         state.grid.query_index(i),
+    //         state
+    //             .grid
+    //             .query_radius(&state.pos[i], &state.pos, KERNEL_SUPPORT),
+    //     )
+    // })
 }
 
 // FUNCTIONS USED ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -812,8 +813,8 @@ fn apply_non_pressure_forces(
     acc: &mut [DVec2],
     den: &[f64],
     mas: &[f64],
-    grid: &Grid,
-    boundary: &Boundary,
+    ds: &Datastructure,
+    bdy: &Boundary,
     vis_knl: &KernelType,
 ) {
     // account for gravity
@@ -830,7 +831,7 @@ fn apply_non_pressure_forces(
             // fluid viscosity
             let vis: DVec2 = nu
                 * 2.*(DIMENSIONS + 2.) // 2*(dimensions + 2)
-                * grid.sum_fluid(i, |j| {
+                * ds.sum_fluid(i, |j| {
                         let x_i_j = *x_i - pos[*j];
                         let v_i_j = *v_i - vel[*j];
                         mas[*j] / den[*j] * (v_i_j).dot(x_i_j)
@@ -839,24 +840,21 @@ fn apply_non_pressure_forces(
                     });
             assert!(vis.is_finite());
             // boundary viscosity
-            let bdy_neighbours = boundary
-                .grid
-                .query_radius(x_i, &boundary.pos, KERNEL_SUPPORT);
-            let bdy_normal = bdy_neighbours
-                .iter()
-                .map(|j| vis_knl.dw(x_i, &boundary.pos[*j]))
-                .sum::<DVec2>()
+            let bdy_normal = bdy
+                .ds
+                .sum_bdy(x_i, bdy, |j| vis_knl.dw(x_i, &bdy.pos[*j]))
                 .normalize_or_zero();
             let vis_bdy: DVec2 = nu2
                 * 2.*(DIMENSIONS + 2.) // 2*(dimensions + 2)
-                * bdy_neighbours.iter()
-                    .map(|j| {
-                        let x_i_j = *x_i - boundary.pos[*j];
-                        let v_i_j = *v_i; // v at boundary is zero
-                        boundary.mas[*j] / rho_0 * (v_i_j).dot(x_i_j)
-                            / (x_i_j.length_squared() + 0.01 * H * H)
-                            * vis_knl.dw(x_i, &boundary.pos[*j])
-                    }).sum::<DVec2>();
+                *  bdy
+                .ds
+                .sum_bdy(x_i, bdy, |j| {
+                    let x_i_j = *x_i - bdy.pos[*j];
+                    let v_i_j = *v_i; // v at boundary is zero
+                    bdy.mas[*j] / rho_0 * (v_i_j).dot(x_i_j)
+                        / (x_i_j.length_squared() + 0.01 * H * H)
+                        * vis_knl.dw(x_i, &bdy.pos[*j])
+                });
             assert!(vis_bdy.is_finite());
             *a_i = acc_g + vis + vis_bdy.dot(bdy_normal) * bdy_normal
         });
@@ -867,7 +865,7 @@ pub fn update_densities(
     pos: &[DVec2],
     den: &mut [f64],
     mas: &[f64],
-    grid: &Grid,
+    ds: &Datastructure,
     bdy: &Boundary,
     knl: &KernelType,
 ) {
@@ -875,9 +873,9 @@ pub fn update_densities(
         .enumerate()
         .zip(den)
         .for_each(|((i, x_i), rho_i)| {
-            *rho_i = grid.sum_fluid(i, |j| knl.w(x_i, &pos[*j]) * mas[*j])
+            *rho_i = ds.sum_fluid(i, |j| knl.w(x_i, &pos[*j]) * mas[*j])
                 + bdy
-                    .grid
+                    .ds
                     .sum_bdy(x_i, bdy, |j| knl.w(x_i, &bdy.pos[*j]) * &bdy.mas[*j]);
         });
 }
@@ -889,7 +887,7 @@ fn predict_densities(
     pos: &[DVec2],
     den: &mut [f64],
     mas: &[f64],
-    grid: &Grid,
+    ds: &Datastructure,
     bdy: &Boundary,
     knl: &KernelType,
 ) {
@@ -898,12 +896,12 @@ fn predict_densities(
         .zip(den)
         .zip(vel)
         .for_each(|(((i, x_i), rho_i), vel_i)| {
-            *rho_i = grid.sum_fluid(i, |j| knl.w(x_i, &pos[*j]) * mas[*j])
-                + dt * grid.sum_fluid(i, |j| mas[*j] * knl.dw(x_i, &pos[*j]).dot(*vel_i - vel[*j]))
+            *rho_i = ds.sum_fluid(i, |j| knl.w(x_i, &pos[*j]) * mas[*j])
+                + dt * ds.sum_fluid(i, |j| mas[*j] * knl.dw(x_i, &pos[*j]).dot(*vel_i - vel[*j]))
                 + bdy
-                    .grid
+                    .ds
                     .sum_bdy(x_i, bdy, |j| knl.w(x_i, &bdy.pos[*j]) * &bdy.mas[*j])
-                + dt * bdy.grid.sum_bdy(x_i, bdy, |j| {
+                + dt * bdy.ds.sum_bdy(x_i, bdy, |j| {
                     &bdy.mas[*j] * knl.dw(x_i, &bdy.pos[*j]).dot(*vel_i)
                 });
         });
@@ -934,7 +932,7 @@ fn add_pressure_accelerations_bdy_rho_0(
     prs: &[f64],
     mas: &[f64],
     acc: &mut [DVec2],
-    grid: &Grid,
+    ds: &Datastructure,
     bdy: &Boundary,
     knl: &KernelType,
 ) {
@@ -948,14 +946,14 @@ fn add_pressure_accelerations_bdy_rho_0(
         .zip(acc)
         .for_each(|((((i, x_i), p_i), rho_i), acc)| {
             let p_i_over_rho_i_squared = p_i / (rho_i * rho_i);
-            *acc += -grid.sum_fluid(i, |j| {
+            *acc += -ds.sum_fluid(i, |j| {
                 mas[*j]
                     * (p_i_over_rho_i_squared + prs[*j] / (den[*j] * den[*j]))
                     * knl.dw(x_i, &pos[*j])
             }) - gamma_2
                 * (p_i_over_rho_i_squared + p_i * one_over_rho_0_squared)
                 * bdy
-                    .grid
+                    .ds
                     .sum_bdy(x_i, bdy, |k| knl.dw(x_i, &bdy.pos[*k]) * bdy.mas[*k]);
         })
 }
@@ -969,7 +967,7 @@ fn set_pressure_accelerations_bdy_mirror(
     prs: &[f64],
     mas: &[f64],
     acc: &mut [DVec2],
-    grid: &Grid,
+    ds: &Datastructure,
     bdy: &Boundary,
     knl: &KernelType,
 ) {
@@ -982,14 +980,14 @@ fn set_pressure_accelerations_bdy_mirror(
         .for_each(|((((i, x_i), p_i), rho_i), acc)| {
             let p_i_over_rho_i_squared = p_i / (rho_i * rho_i);
             let two_p_i_over_rho_i_squared = 2. * p_i_over_rho_i_squared;
-            *acc = -grid.sum_fluid(i, |j| {
+            *acc = -ds.sum_fluid(i, |j| {
                 mas[*j]
                     * (p_i_over_rho_i_squared + prs[*j] / (den[*j] * den[*j]))
                     * knl.dw(x_i, &pos[*j])
             }) - gamma_2
                 * two_p_i_over_rho_i_squared
                 * bdy
-                    .grid
+                    .ds
                     .sum_bdy(x_i, bdy, |k| knl.dw(x_i, &bdy.pos[*k]) * bdy.mas[*k]);
         })
 }

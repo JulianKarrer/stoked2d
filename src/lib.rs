@@ -2,9 +2,9 @@
 #![feature(iter_collect_into)]
 #![feature(const_fn_floating_point_arithmetic)]
 use atomic_float::{AtomicF32, AtomicF64};
-use datastructure::{AtomicGridCurve, GridCurve};
 use egui_speedy2d::egui::mutex::RwLock;
 use glam::DVec2;
+use grid::{AtomicGridCurve, DatastructureType, GridCurve};
 use lazy_static::lazy_static;
 use ocl::prm::Float2;
 use simulation::{AtomicPressureEquation, AtomicSolver};
@@ -21,7 +21,7 @@ pub mod gui {
 }
 pub mod attributes;
 pub mod boundary;
-pub mod datastructure;
+pub mod grid;
 pub mod simulation;
 pub mod sph;
 pub mod utils;
@@ -84,8 +84,9 @@ lazy_static! {
 /// The gravitational constant
 static GRAVITY: AtomicF64 = AtomicF64::new(-9.807);
 /// Particle spacing
-pub const H: f64 = 0.01206;
-pub const SCALE: f64 = 0.01;
+// pub const H: f64 = 0.01206;
+pub const H: f64 = 0.0033;
+pub const SCALE: f64 = 0.001;
 pub static INITIAL_JITTER: AtomicF64 = AtomicF64::new(0.01 * H);
 // boundary handling
 pub static GAMMA_1: AtomicF64 = AtomicF64::new(0.8);
@@ -97,7 +98,8 @@ const USE_GPU_BOUNDARY: bool = true;
 
 /// Viscosity constant Nu
 pub static NU: AtomicF64 = AtomicF64::new(0.0001);
-pub static NU_2: AtomicF64 = AtomicF64::new(0.020);
+// pub static NU_2: AtomicF64 = AtomicF64::new(0.020);
+pub static NU_2: AtomicF64 = AtomicF64::new(0.0);
 /// Stiffness constant determining the incompressibility in the state equation
 pub static K: AtomicF64 = AtomicF64::new(500.);
 
@@ -131,6 +133,7 @@ const V_ZERO: f64 = H * H; // theoretical rest volume at rho_0 for 2D
 pub const KERNEL_SUPPORT: f64 = 2.0 * H; // -> Consequence of kernel support radius 2H:
 
 // datastructure settings
+const DATASTRUCTURE: DatastructureType = DatastructureType::Grid;
 static GRID_CURVE: AtomicGridCurve = AtomicGridCurve::new(GridCurve::XYZ);
 
 // gpu settings
